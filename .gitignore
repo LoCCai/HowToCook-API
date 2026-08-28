@@ -1,0 +1,12 @@
+# 依赖与环境
+node_modules/
+.env
+
+# 本地克隆的菜谱内容（通过 submodule 或手动克隆获取，不入库）
+# 注意：若使用 submodule（git submodule add），content 的 gitlink 由 git 管理，不受此影响
+content/
+
+# 其它
+*.log
+.DS_Store
+.mimosa/

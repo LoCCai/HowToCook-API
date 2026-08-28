@@ -1,0 +1,21 @@
+{
+  "name": "howtocook-api",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "HowToCook 菜谱只读 REST API 中间件（搜索 / 结构化字段 / MD / HTML / 图片分发）",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node src/dev.js",
+    "smoke": "node scripts/smoke.js"
+  },
+  "engines": {
+    "node": ">=18.17"
+  },
+  "dependencies": {
+    "express": "^5.1.0",
+    "markdown-it": "^14.1.0",
+    "pinyin-pro": "^3.26.0"
+  }
+}

@@ -1,0 +1,8 @@
+# Docker 构建上下文排除项（上下文 = 本仓库根目录）
+# 菜谱内容不进入上下文：构建期由 Dockerfile 直接克隆内容仓库
+node_modules
+.env
+content
+.git
+*.log
+.DS_Store
