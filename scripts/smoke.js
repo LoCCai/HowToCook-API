@@ -61,7 +61,7 @@ try {
     const { body } = await getJson('/api/health');
     check('health: 368 菜谱', body.data.recipes === 368, `got ${body.data.recipes}`);
     check('health: git 元数据可用', body.data.git_metadata === true);
-    const docs = await getText('/api');
+    const docs = await textOf(await fetch(assertLocalUrl(BASE + '/api')));
     check('/api 索引页 200 HTML', docs.status === 200 && docs.text.includes('<table>'));
     const oa = await getJson('/api/openapi.json');
     check('openapi 3.1', oa.body.openapi === '3.1.0');
