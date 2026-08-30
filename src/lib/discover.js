@@ -216,3 +216,204 @@ export function buildStats(store) {
     index_built_at: store.builtAt,
   };
 }
+
+/* ------------------------------------------------------------------ */
+/* 忌口 / 过敏原标签（启发式判定，供过滤与展示）                              */
+/* ------------------------------------------------------------------ */
+
+const MEAT_WORDS = ['肉', '鸡', '鸭', '鹅', '牛', '羊', '猪', '鱼', '虾', '蟹', '贝', '蚝', '鳝', '鱿', '火腿', '腊', '蛋', '奶', '黄油', '芝士', '奶酪'];
+const SPICY_WORDS = ['辣椒', '小米辣', '花椒', '麻椒', '藤椒', '胡椒', '辣'];
+const SEAFOOD_WORDS = ['鱼', '虾', '蟹', '贝', '蚝', '鳝', '鱿', '海米', '虾米', '虾皮', '紫菜', '海带', '蛤', '蛏'];
+const PEANUT_WORDS = ['花生'];
+const EGG_WORDS = ['蛋'];
+const DAIRY_WORDS = ['牛奶', '奶油', '黄油', '芝士', '奶酪', '炼乳', '酸奶', '奶'];
+const GLUTEN_WORDS = ['面粉', '面条', '挂面', '面包', '意面', '方便面', '饺子皮', '馄饨皮', '馒头', '吐司', '油条', '饼皮'];
+
+const nameContainsAny = (n, words) => words.some((w) => n.includes(w));
+
+/**
+ * 启发式计算菜谱标签（构建期执行一次）：
+ * vegetarian=素食（原料不含任何肉/禽/水产/蛋/奶词）、spicy=含辣、
+ * seafood=海鲜水产、peanut/egg/dairy/gluten=常见过敏原。
+ */
+export function computeDietTags(recipe) {
+  const ingredients = (recipe.ingredients || []).filter((i) => !isToolName(i.name)).map((i) => normalizeName(i.name));
+  const tags = [];
+  if (ingredients.length > 0 && !ingredients.some((n) => nameContainsAny(n, MEAT_WORDS))) tags.push('vegetarian');
+  if (ingredients.some((n) => nameContainsAny(n, SPICY_WORDS))) tags.push('spicy');
+  if (recipe.category === 'aquatic' || ingredients.some((n) => nameContainsAny(n, SEAFOOD_WORDS))) tags.push('seafood');
+  if (ingredients.some((n) => nameContainsAny(n, PEANUT_WORDS))) tags.push('peanut');
+  if (ingredients.some((n) => nameContainsAny(n, EGG_WORDS))) tags.push('egg');
+  if (ingredients.some((n) => nameContainsAny(n, DAIRY_WORDS))) tags.push('dairy');
+  if (ingredients.some((n) => nameContainsAny(n, GLUTEN_WORDS))) tags.push('gluten');
+  return tags;
+}
+
+/**
+ * 按标签过滤菜谱数组：includeTags 全部命中才保留，excludeTags 命中任一即剔除。
+ */
+export function filterByTags(items, includeTags, excludeTags) {
+  let out = items;
+  if (includeTags && includeTags.length > 0) {
+    out = out.filter((r) => includeTags.every((t) => (r.dietTags || []).includes(t)));
+  }
+  if (excludeTags && excludeTags.length > 0) {
+    out = out.filter((r) => !excludeTags.some((t) => (r.dietTags || []).includes(t)));
+  }
+  return out;
+}
+
+const KNOWN_TAGS = ['vegetarian', 'spicy', 'seafood', 'peanut', 'egg', 'dairy', 'gluten'];
+
+/** 索引重建 hook：为全部菜谱计算启发式标签（构建期一次）。 */
+export function attachDietTags(store) {
+  for (const r of store.recipes.values()) {
+    r.dietTags = computeDietTags(r);
+  }
+}
+
+/** 解析逗号分隔的标签参数为小写数组（未知标签忽略）。 */
+export function parseTagParam(raw) {
+  return String(raw || '')
+    .split(/[,，]/)
+    .map((t) => t.trim().toLowerCase())
+    .filter((t) => KNOWN_TAGS.includes(t));
+}
+
+/* ------------------------------------------------------------------ */
+/* 一周膳食计划（每日荤素汤，一周内不重样）                                 */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 生成 days 天的膳食计划：三个池各自洗牌成牌堆依次抽取，抽过的不再出现；
+ * 池子耗尽时重新洗牌（meta.repeats 标注允许重复）。
+ * 返回 { days: [{ day, meat: [], vegetable: [], soup: [] }], repeats }，
+ * 菜谱对象由路由层映射为 summary。
+ */
+export function buildWeekPlan(store, { days = 7, slots = { meat: 1, vegetable: 1, soup: 1 }, rng, maxDifficulty = null, excludeTags = [] }) {
+  const poolBy = (categories) =>
+    filterByTags(
+      store
+        .listRecipes()
+        .filter((r) => categories.includes(r.category) && (maxDifficulty == null || (r.difficulty != null && r.difficulty <= maxDifficulty))),
+      null,
+      excludeTags
+    );
+  const pools = {
+    meat: poolBy(['meat_dish', 'aquatic']),
+    vegetable: poolBy(['vegetable_dish']),
+    soup: poolBy(['soup']),
+  };
+  const deck = { meat: [], vegetable: [], soup: [] };
+  let repeats = false;
+  const plan = [];
+  for (let d = 1; d <= days; d++) {
+    const day = { day: d, meat: [], vegetable: [], soup: [] };
+    for (const slot of Object.keys(slots)) {
+      for (let k = 0; k < slots[slot]; k++) {
+        if (deck[slot].length === 0) {
+          if (pools[slot].length === 0) break;
+          deck[slot] = pickRandom(pools[slot], pools[slot].length, rng);
+          if (plan.length > 0) repeats = true;
+        }
+        day[slot].push(deck[slot].pop());
+      }
+    }
+    plan.push(day);
+  }
+  return { days: plan, repeats };
+}
+
+/* ------------------------------------------------------------------ */
+/* 购物清单（多菜谱原料合并）                                              */
+/* ------------------------------------------------------------------ */
+
+const UNIT_NORMALIZE = { 克: 'g', 千克: 'kg', 公斤: 'kg', 毫克: 'mg', 毫升: 'ml', 升: 'l', 大卡: 'kcal' };
+
+/** 解析数量字符串为 { value, unit }；区间取中值；不可解析（适量/中文数量词）返回 null。 */
+export function parseAmount(quantityStr) {
+  const s = String(quantityStr || '').trim();
+  const m = s.match(
+    /^(\d+(?:\.\d+)?)\s*(?:[-~—到至]\s*(\d+(?:\.\d+)?))?\s*(克|千克|公斤|毫克|毫升|大卡|g|kg|mg|ml|mL|L|升|斤|两|个|只|条|根|片|瓣|张|滴|块|杯|罐|瓶|袋|把|勺|匙|撮|粒|颗|枚|份)?\s*$/i
+  );
+  if (!m) return null;
+  const first = parseFloat(m[1]);
+  const value = m[2] != null ? (first + parseFloat(m[2])) / 2 : first;
+  if (Number.isNaN(value)) return null;
+  let unit = (m[3] || '').toLowerCase();
+  unit = UNIT_NORMALIZE[unit] || unit;
+  return { value, unit };
+}
+
+/**
+ * 合并多个菜谱的原料为购物清单：
+ * - 以规范名归一聚合（番茄/西红柿合并），排除工具；
+ * - 可解析数量按「同名同单位」相加（servingsFactor 线性缩放）；
+ * - 不可解析数量（适量/若干）归入 unspecified 保留原文。
+ */
+export function buildShoppingList(store, recipeIds, servingsFactor = 1) {
+  const items = new Map(); // canonical -> entry
+  const resolved = [];
+  const notFound = [];
+  for (const id of recipeIds) {
+    const recipe = store.recipes.get(id);
+    if (!recipe) {
+      notFound.push(id);
+      continue;
+    }
+    resolved.push({ id, title: recipe.title });
+    for (const ing of (recipe.ingredients || []).filter((i) => !isToolName(i.name))) {
+      const canonical = canonicalIngredients(ing.name)[0];
+      if (!items.has(canonical)) {
+        items.set(canonical, { name: canonical, display_names: new Set(), amounts: new Map(), unspecified: new Set(), recipes: new Set() });
+      }
+      const entry = items.get(canonical);
+      entry.display_names.add(ing.name);
+      entry.recipes.add(recipe.title);
+      const amount = parseAmount(ing.quantity);
+      if (amount) {
+        const value = Math.round(amount.value * servingsFactor * 100) / 100;
+        const bucket = entry.amounts.get(amount.unit) || { unit: amount.unit, value: 0, scaled: servingsFactor !== 1 };
+        bucket.value = Math.round((bucket.value + value) * 100) / 100;
+        entry.amounts.set(amount.unit, bucket);
+      } else if (ing.quantity) {
+        entry.unspecified.add(String(ing.quantity));
+      }
+    }
+  }
+  return {
+    items: [...items.values()].map((e) => ({
+      name: e.name,
+      display_names: [...e.display_names],
+      amounts: [...e.amounts.values()].map((a) => ({ unit: a.unit, value: a.value, scaled: a.scaled })),
+      unspecified: [...e.unspecified],
+      recipes: [...e.recipes],
+    })),
+    recipes: resolved,
+    not_found: notFound,
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/* 份数缩放                                                            */
+/* ------------------------------------------------------------------ */
+
+/** 从菜谱简介解析基准份数（如「一份正好够 2 个人吃」）；默认 2。 */
+export function parseBaseServings(description) {
+  const d = String(description || '');
+  const m = d.match(/(?:一份|每份)[^。\d]*?(\d+)\s*个?人/) || d.match(/(\d+)\s*人\s*(?:份|吃|食用)/);
+  const n = m ? Number.parseInt(m[1], 10) : NaN;
+  return Number.isNaN(n) || n <= 0 ? 2 : Math.min(20, n);
+}
+
+/**
+ * 缩放数量字符串：纯数字（含区间、单位）乘 factor；
+ * 不可解析的（适量/两片）返回 null，由调用方保留原文并标注未缩放。
+ */
+export function scaleQuantity(quantityStr, factor) {
+  const amount = parseAmount(quantityStr);
+  if (!amount || factor === 1) return null;
+  const fmt = (v) => Math.round(v * 100) / 100;
+  const scaled = fmt(amount.value * factor);
+  return amount.unit ? `${scaled} ${amount.unit}`.trim() : `${scaled}`;
+}

@@ -3,11 +3,12 @@ import { watch } from 'node:fs';
 import { config } from './config.js';
 import { Store } from './lib/scanner.js';
 import { buildRecipeSearchIndex, buildTipSearchIndex } from './lib/search.js';
+import { attachDietTags } from './lib/discover.js';
 import { ensureContent } from './lib/content-fetcher.js';
 import { startAutoUpdate } from './lib/content-updater.js';
 import { createApp } from './app.js';
 
-const REBUILD_HOOKS = [buildRecipeSearchIndex, buildTipSearchIndex];
+const REBUILD_HOOKS = [buildRecipeSearchIndex, buildTipSearchIndex, attachDietTags];
 
 // 内容缺失时自动从官方 HowToCook 仓库下载（CONTENT_DIR 指定的目录不会触发下载）
 const contentState = await ensureContent(config.repoRoot);

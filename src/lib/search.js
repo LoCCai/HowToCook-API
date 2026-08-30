@@ -1,4 +1,5 @@
 import { pinyin } from 'pinyin-pro';
+import { filterByTags, parseTagParam } from './discover.js';
 
 /**
  * 归一化查询与文本：小写、去空白。中英文混排均可匹配。
@@ -114,7 +115,7 @@ export function scoreRecord(record, qNorm, categoryTitle) {
 
 /**
  * 菜谱搜索 / 过滤 / 排序 / 分页。
- * options: { q, category, difficulty, maxDifficulty, ingredient, sort, page, pageSize }
+ * options: { q, category, difficulty, maxDifficulty, ingredient, sort, page, pageSize, tag, excludeTags }
  */
 export function queryRecipes(store, options = {}) {
   const {
@@ -126,6 +127,8 @@ export function queryRecipes(store, options = {}) {
     sort = null,
     page = 1,
     pageSize = 20,
+    tag = null,
+    excludeTags = null,
   } = options;
 
   let items = store.listRecipes();
@@ -136,6 +139,10 @@ export function queryRecipes(store, options = {}) {
   if (ingredient) {
     const ing = normalize(ingredient);
     items = items.filter((r) => (r.ingredients || []).some((i) => normalize(i.name).includes(ing)));
+  }
+  // 忌口 / 过敏原标签过滤（tag=vegetarian & exclude_tags=spicy,seafood）
+  if (tag || excludeTags) {
+    items = filterByTags(items, tag ? parseTagParam(tag) : null, excludeTags ? parseTagParam(excludeTags) : null);
   }
 
   let queryMeta = null;

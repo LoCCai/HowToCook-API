@@ -16,6 +16,7 @@ const LIST_60S = [
   /^\/api\/(categories|stats|search)$/,
   /^\/api\/recipes$/,
   /^\/api\/tips$/,
+  /^\/api\/plan\//,
 ];
 
 export function cacheControl(req, res, next) {

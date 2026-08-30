@@ -97,6 +97,10 @@ try {
     const r = await fetch(assertLocalUrl(BASE + p));
     return { status: r.status, headers: r.headers, body: await r.json() };
   };
+  const postJson = async (p) => {
+    const r = await fetch(assertLocalUrl(BASE + p), { method: 'POST' });
+    return { status: r.status, headers: r.headers, body: await r.json() };
+  };
   const textOf = async (res) => ({ status: res.status, text: await res.text() });
 
   console.log('[1] 基础端点');
@@ -328,6 +332,65 @@ try {
       dry.status === 200 ? (dryBody.data.dry_run === true && dryBody.data.updated === false) : dry.status === 502,
       `status=${dry.status}`
     );
+  }
+
+  console.log('[14] 周计划 / 购物清单 / 标签 / JSON-LD / changelog / 份数缩放');
+  {
+    // 一周膳食计划
+    const week = await getJson('/api/plan/week?seed=wk&days=7');
+    check('week 7 天计划', week.body.data.days.length === 7);
+    const allIds = week.body.data.days.flatMap((d) => [...d.meat, ...d.vegetable, ...d.soup].map((x) => x.id));
+    check('week 周内不重样', new Set(allIds).size === allIds.length, `total=${allIds.length} unique=${new Set(allIds).size}`);
+    check('week 每日荤素汤齐全', week.body.data.days.every((d) => d.meat.length === 1 && d.vegetable.length === 1 && d.soup.length === 1));
+    const week2 = await getJson('/api/plan/week?seed=wk&days=7');
+    check('week 同 seed 可复现', week2.body.data.days[0].meat[0].id === week.body.data.days[0].meat[0].id);
+    check('week meta 标注 repeats', week.body.meta.repeats === false);
+
+    // 忌口标签过滤
+    const veg = await getJson('/api/recipes?tag=vegetarian&page_size=100');
+    check('tag=vegetarian 全部为素', veg.body.data.length > 0 && veg.body.data.every((x) => x.diet_tags.includes('vegetarian')));
+    const noSea = await getJson('/api/recipes?exclude_tags=seafood&page_size=100');
+    check('exclude_tags=seafood 无水产', noSea.body.data.length > 0 && noSea.body.data.every((x) => !x.diet_tags.includes('seafood')));
+    const detail = await getJson(`/api/recipes/${XL_ID}`);
+    check('详情含 diet_tags（小龙虾 spicy+seafood）', detail.body.data.diet_tags.includes('spicy') && detail.body.data.diet_tags.includes('seafood'));
+
+    // 购物清单：蛏抱蛋 + 微波炉荷包蛋（鸡蛋均为纯数字数量「2 个」，合并应得 4 个）
+    const byId = (title) =>
+      getJson(`/api/recipes?q=${encodeURIComponent(title)}&page_size=1`).then((r) => r.body.data[0]?.id);
+    const chengId = await byId('蛏抱蛋');
+    const omeletteId = await byId('微波炉荷包蛋');
+    if (chengId && omeletteId) {
+      const sl = await postJson(`/api/shopping-list?ids=${chengId},${omeletteId}`);
+      check('shopping-list 合并原料', sl.body.data.items.length > 0 && sl.body.data.recipes.length === 2);
+      const eggItem = sl.body.data.items.find((i) => i.name === '鸡蛋');
+      check('shopping-list 鸡蛋跨菜谱合并相加（2 个 + 2 个 = 4 个）', eggItem && eggItem.amounts.length === 1 && eggItem.amounts[0].value === 4, JSON.stringify(eggItem));
+      check('shopping-list 规范名归一（display_names）', sl.body.data.items.every((i) => i.display_names.length >= 1));
+      const slScaled = await postJson(`/api/shopping-list?ids=${chengId}&servings=4`);
+      check('shopping-list servings 缩放', slScaled.body.data.items.some((i) => i.amounts.some((a) => a.scaled === true && a.value > 0)));
+    } else {
+      check('找到蛏抱蛋与微波炉荷包蛋', false, `cheng=${chengId} omelette=${omeletteId}`);
+    }
+    const slBad = await postJson('/api/shopping-list');
+    check('shopping-list 缺 ids 400', slBad.status === 400);
+
+    // JSON-LD
+    const ld = await fetch(assertLocalUrl(BASE + `/api/recipes/${XL_ID}/jsonld`));
+    const ldBody = await ld.json();
+    check('jsonld content-type', (ld.headers.get('content-type') || '').includes('application/ld+json'));
+    check('jsonld 结构（Recipe + HowToStep + 原料）', ldBody['@type'] === 'Recipe' && ldBody.recipeIngredient.length === 17 && ldBody.recipeInstructions[0]['@type'] === 'HowToStep');
+    check('jsonld 作者来自 git', ldBody.author.name === 'Allen');
+
+    // 份数缩放
+    const ing = await getJson(`/api/recipes/${XL_ID}/ingredients?servings=4`);
+    check('ingredients servings 缩放元数据', ing.body.meta.servings === 4 && ing.body.meta.base_servings >= 1);
+    const scaledItem = ing.body.data.find((i) => i.scaled === true);
+    check('数值型数量已缩放且保留原文', scaledItem && scaledItem.quantity_original != null && scaledItem.quantity !== scaledItem.quantity_original);
+    check('无法缩放项标注 scaled=false', ing.body.data.every((i) => typeof i.scaled === 'boolean'));
+
+    // changelog
+    const log = await getJson('/api/content/changelog?days=365');
+    check('changelog 结构', Array.isArray(log.body.data.added) && Array.isArray(log.body.data.updated));
+    check('changelog 覆盖全部菜谱（365 天窗口）', log.body.meta.added + log.body.meta.updated >= 368, `added=${log.body.meta.added} updated=${log.body.meta.updated}`);
   }
 } catch (err) {
   failed++;

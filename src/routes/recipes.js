@@ -4,7 +4,7 @@ import { HttpError } from '../middleware/error.js';
 import { renderMarkdown } from '../lib/parser.js';
 import { buildImageEntries, imageEntryUrl, rewriteImageUrls } from '../lib/images.js';
 import { queryRecipes } from '../lib/search.js';
-import { matchByIngredients, relatedRecipes, hashSeed, mulberry32, pickRandom } from '../lib/discover.js';
+import { matchByIngredients, relatedRecipes, hashSeed, mulberry32, pickRandom, parseTagParam, filterByTags, parseBaseServings, scaleQuantity } from '../lib/discover.js';
 import { getStore, resolveImageMode, parsePagination, categoryTitle, docDir, pickFields } from './helpers.js';
 
 const router = Router();
@@ -36,6 +36,7 @@ export function summaryOf(recipe, imageMode) {
     calories: recipe.calories,
     time_estimate: recipe.timeEstimate,
     methods: recipe.methods,
+    diet_tags: recipe.dietTags || [],
     author: recipe.author ? recipe.author.name : null,
     created_at: recipe.created_at,
     updated_at: recipe.updated_at,
@@ -132,6 +133,8 @@ router.get('/', (req, res, next) => {
       sort: req.query.sort ? String(req.query.sort) : null,
       page,
       pageSize,
+      tag: req.query.tag ? String(req.query.tag) : null,
+      excludeTags: req.query.exclude_tags ? String(req.query.exclude_tags) : null,
     });
 
     const items = result.items.map((r) => pickFields(summaryOf(r, imageMode), req.query.fields));
@@ -165,6 +168,10 @@ router.get('/random', (req, res, next) => {
     }
     if (req.query.difficulty != null) {
       items = items.filter((r) => r.difficulty === difficulty);
+    }
+    const excludeTags = parseTagParam(req.query.exclude_tags);
+    if (excludeTags.length > 0) {
+      items = filterByTags(items, null, excludeTags);
     }
     if (items.length === 0) {
       throw new HttpError(404, 'NO_MATCHING_RECIPES', '过滤条件下没有可选菜谱');
@@ -269,12 +276,72 @@ router.get('/:id/meta', loadRecipe, (req, res) => {
   });
 });
 
-// 原料（含数量）
+// 原料（含数量）；?servings=N 按基准份数线性缩放（基准从菜谱简介解析，默认 2 人份）
 router.get('/:id/ingredients', loadRecipe, (req, res) => {
   const r = res.locals.recipe;
+  let factor = 1;
+  let baseServings = null;
+  let servings = null;
+  if (req.query.servings != null) {
+    servings = Number.parseInt(req.query.servings, 10);
+    if (Number.isNaN(servings) || servings < 1 || servings > 100) {
+      throw new HttpError(400, 'INVALID_SERVINGS', 'servings 必须是 1-100');
+    }
+    baseServings = parseBaseServings(r.description);
+    factor = servings / baseServings;
+  }
+  const data = r.ingredients.map((ing) => {
+    const item = { ...ing };
+    if (factor !== 1) {
+      const scaled = scaleQuantity(ing.quantity, factor);
+      item.quantity_original = ing.quantity;
+      if (scaled) {
+        item.quantity = scaled;
+        item.scaled = true;
+      } else {
+        item.scaled = false; // 适量/中文数量词等无法缩放，保留原文
+      }
+    }
+    return item;
+  });
   res.json({
-    data: r.ingredients,
-    meta: { id: r.id, title: r.title, total: r.ingredients.length },
+    data,
+    meta: {
+      id: r.id,
+      title: r.title,
+      total: r.ingredients.length,
+      ...(servings != null ? { servings, base_servings: baseServings, factor: Math.round(factor * 1000) / 1000 } : {}),
+    },
+  });
+});
+
+// schema.org Recipe JSON-LD（Google 菜谱富摘要标准格式）
+router.get('/:id/jsonld', loadRecipe, (req, res) => {
+  const imageMode = resolveImageMode(req);
+  const r = res.locals.recipe;
+  const dir = docDir(r.path);
+  const origin = `${req.protocol}://${req.get('host')}`;
+  const images = buildImageEntries(r.images, dir)
+    .filter((e) => !e.external)
+    .map((e) => (imageEntryUrl(e, imageMode).startsWith('/') ? origin + imageEntryUrl(e, imageMode) : imageEntryUrl(e, imageMode)));
+  const minutes = r.timeEstimate?.minutes;
+  const totalTime = minutes ? `PT${Math.floor(minutes / 60)}H${Math.round(minutes % 60)}M`.replace(/H0M$/, 'M').replace(/^PT(?=M)/, 'PT0H') : undefined;
+  res.type('application/ld+json').json({
+    '@context': 'https://schema.org',
+    '@type': 'Recipe',
+    name: r.title,
+    description: r.description || undefined,
+    author: r.author ? { '@type': 'Person', name: r.author.name } : { '@type': 'Organization', name: 'HowToCook 社区' },
+    datePublished: r.created_at || undefined,
+    dateModified: r.updated_at || undefined,
+    image: images.length > 0 ? images : undefined,
+    recipeCategory: categoryTitle(r.category),
+    keywords: [categoryTitle(r.category), ...(r.methods || [])].filter(Boolean).join(','),
+    recipeIngredient: r.ingredients.map((i) => (i.quantity ? `${i.name} ${i.quantity}` : i.name)),
+    recipeInstructions: r.steps.map((s) => ({ '@type': 'HowToStep', position: s.index, text: s.text })),
+    totalTime: totalTime,
+    nutrition: r.calories ? { '@type': 'NutritionInformation', calories: `${r.calories.value} ${r.calories.unit}` } : undefined,
+    suitableForDiet: (r.dietTags || []).includes('vegetarian') ? 'https://schema.org/VegetarianDiet' : undefined,
   });
 });
 
