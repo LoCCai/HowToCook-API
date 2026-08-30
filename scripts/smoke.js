@@ -267,6 +267,18 @@ try {
     check('menu 槽位数量可调', menuCustom.body.data.meat.length === 2 && menuCustom.body.data.vegetable.length === 0 && menuCustom.body.data.soup.length === 1);
     const menuEmpty = await getJson('/api/menu?meat=0&vegetable=0&soup=0');
     check('menu 全空槽 400', menuEmpty.status === 400);
+    const menuBlank = await getJson('/api/menu?meat=&vegetable=1&soup=1&seed=x');
+    check('menu 留空槽位按默认 1（而非 0）', menuBlank.body.data.meat.length === 1);
+    check('menu meta 含 unfilled 字段', Array.isArray(menu.body.meta.unfilled));
+
+    const rndBad = await getJson('/api/recipes/random?difficulty=9');
+    check('random 非法难度 400（不静默忽略）', rndBad.status === 400);
+
+    // 错误响应必须 no-store，防止 CDN 缓存 404/400
+    const nfRecipe = await getJson('/api/recipes/nonexistentid');
+    check('404 响应 no-store', nfRecipe.headers.get('cache-control') === 'no-store');
+    const badCat = await getJson('/api/recipes?category=nonexistent');
+    check('400 响应 no-store', badCat.headers.get('cache-control') === 'no-store');
 
     const stats = await getJson('/api/stats');
     const topNames = stats.body.data.top_ingredients.map((i) => i.name);

@@ -159,7 +159,11 @@ router.get('/random', (req, res, next) => {
       items = items.filter((r) => r.category === category);
     }
     const difficulty = Number.parseInt(req.query.difficulty, 10);
-    if (Number.isNaN(difficulty) === false && difficulty >= 1 && difficulty <= 5) {
+    if (req.query.difficulty != null && (Number.isNaN(difficulty) || difficulty < 1 || difficulty > 5)) {
+      // 与列表接口一致：提供了非法难度直接 400，而非静默忽略
+      throw new HttpError(400, 'INVALID_DIFFICULTY', 'difficulty 必须是 1-5');
+    }
+    if (req.query.difficulty != null) {
       items = items.filter((r) => r.difficulty === difficulty);
     }
     if (items.length === 0) {

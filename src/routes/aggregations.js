@@ -16,10 +16,11 @@ router.get('/menu', (req, res, next) => {
     const rng = mulberry32(hashSeed(`menu:${seed}`));
 
     const clampSlot = (v) => Math.min(3, Math.max(0, Number.parseInt(v, 10) || 0));
+    const slotParam = (v, defaultValue) => (v == null || v === '' ? defaultValue : clampSlot(v));
     const slots = {
-      meat: req.query.meat != null ? clampSlot(req.query.meat) : 1,
-      vegetable: req.query.vegetable != null ? clampSlot(req.query.vegetable) : 1,
-      soup: req.query.soup != null ? clampSlot(req.query.soup) : 1,
+      meat: slotParam(req.query.meat, 1),
+      vegetable: slotParam(req.query.vegetable, 1),
+      soup: slotParam(req.query.soup, 1),
     };
     if (slots.meat + slots.vegetable + slots.soup === 0) {
       throw new HttpError(400, 'EMPTY_MENU', '至少需要一个槽位：meat / vegetable / soup');
@@ -44,6 +45,8 @@ router.get('/menu', (req, res, next) => {
       // 同一 rng 依次抽取，保证相同 seed 得到相同整桌
       data[slot] = count > 0 ? pickRandom(pools[slot], count, rng).map((r) => summaryOf(r, imageMode)) : [];
     }
+    // 池子比要求数量少时如实告知（如 max_difficulty 过滤后汤池为空）
+    const unfilled = Object.keys(slots).filter((slot) => slots[slot] > data[slot].length);
     res.json({
       data,
       meta: {
@@ -51,6 +54,7 @@ router.get('/menu', (req, res, next) => {
         slots,
         max_difficulty: maxDiff,
         pool_sizes: { meat: pools.meat.length, vegetable: pools.vegetable.length, soup: pools.soup.length },
+        unfilled,
         image_mode: imageMode,
       },
     });

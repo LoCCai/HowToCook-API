@@ -18,7 +18,8 @@ const LIST_60S = [
 ];
 
 export function cacheControl(req, res, next) {
-  const path = req.path;
+  // 归一化尾斜杠：/api/recipes/ 与 /api/recipes 应用同一策略
+  const path = req.path === '/' ? '/' : req.path.replace(/\/+$/, '');
   let value = 'public, max-age=300';
   if (NO_STORE.some((re) => re.test(path))) value = 'no-store';
   else if (LIST_60S.some((re) => re.test(path))) value = 'public, max-age=60';
