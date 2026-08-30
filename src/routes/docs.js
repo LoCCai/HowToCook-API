@@ -11,8 +11,11 @@ router.get('/', (req, res) => {
   const rows = [
     ['GET', '/api/health', '健康检查（含索引统计）'],
     ['GET', '/api/openapi.json', 'OpenAPI 3.1 接口描述'],
+    ['GET', '/api/docs', '交互式 API 文档（Swagger UI）'],
     ['GET', '/api/categories', '菜谱分类列表（中文名 + 数量）'],
     ['GET', '/api/recipes', '菜谱列表 / 模糊搜索。参数：q、category、difficulty、max_difficulty、ingredient、sort、page、page_size、fields、image_mode'],
+    ['GET', '/api/recipes/random', '随机推荐（今天吃什么）。参数：count、seed（可复现）、category、difficulty、image_mode'],
+    ['GET', '/api/recipes/by-ingredients', '按手头原料找菜。参数：have（逗号分隔）、mode=loose|strict、limit、image_mode'],
     ['GET', '/api/recipes/:id', '单个菜谱完整结构化 JSON（含 markdown 与 html 全文）'],
     ['GET', '/api/recipes/:id/meta', '元信息：标题 / 分类 / 难度 / 卡路里 / 作者 / 编写时间 / 更新时间 / 封面'],
     ['GET', '/api/recipes/:id/ingredients', '原料清单（名称 / 数量 / 备注 / 是否可选）'],
@@ -21,9 +24,12 @@ router.get('/', (req, res) => {
     ['GET', '/api/recipes/:id/sections', '原始 H2 段落（markdown + html）'],
     ['GET', '/api/recipes/:id/notes', '附加内容与反馈声明'],
     ['GET', '/api/recipes/:id/images', '图片资源清单（相对路径 + server / proxy URL）'],
+    ['GET', '/api/recipes/:id/related', '相似菜谱推荐（原料重合度 + 同分类加权）。参数：limit'],
     ['GET', '/api/recipes/:id/markdown', '完整 Markdown（图片地址按 image_mode 重写）'],
     ['GET', '/api/recipes/:id/html', '正文 HTML 片段（仅正文，无 html/head/body 包裹）'],
     ['GET', '/api/recipes/:id/raw', '原始 markdown 文件字节'],
+    ['GET', '/api/search', '聚合搜索：菜谱 + 技巧文档一次返回。参数：q、image_mode'],
+    ['GET', '/api/stats', '全库统计（分类 / 难度 / 烹饪方式分布、最常用原料）'],
     ['GET', '/api/tips', '烹饪技巧文档列表 / 搜索（q、group、分页）'],
     ['GET', '/api/tips/:id', '技巧文档详情（+ /meta /markdown /html /raw）'],
     ['GET', '/assets/*', '图片等静态资源（按仓库相对路径分发）'],
@@ -66,6 +72,29 @@ ${rowsHtml}
 </body>
 </html>`;
   res.type('text/html; charset=utf-8').send(html);
+});
+
+/* ------------------------------------------------------------------ */
+/* GET /api/docs —— Swagger UI（读取本服务 openapi.json，CDN 单页）        */
+/* ------------------------------------------------------------------ */
+
+router.get('/docs', (req, res) => {
+  res.type('text/html; charset=utf-8').send(`<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HowToCook API 文档</title>
+<link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css">
+</head>
+<body>
+<div id="swagger"></div>
+<script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+<script>
+  window.SwaggerUIBundle({ url: '/api/openapi.json', dom_id: '#swagger', persistAuthorization: false });
+</script>
+</body>
+</html>`);
 });
 
 /* ------------------------------------------------------------------ */
@@ -139,6 +168,41 @@ function openApiDocument() {
       '/api/recipes/{id}/markdown': { get: { summary: '完整 Markdown（图片地址按 image_mode 重写）', parameters: [idParam(), imageModeParam()], responses: { 200: { description: 'text/markdown' } } } },
       '/api/recipes/{id}/html': { get: { summary: '正文 HTML 片段', parameters: [idParam(), imageModeParam()], responses: { 200: { description: 'text/html 片段' } } } },
       '/api/recipes/{id}/raw': { get: { summary: '原始 markdown 文件', parameters: [idParam()], responses: { 200: { description: 'text/markdown' } } } },
+      '/api/recipes/{id}/related': { get: { summary: '相似菜谱推荐（原料重合度 + 同分类加权）', parameters: [idParam(), q('limit', '返回数量，默认 5，最大 20', { type: 'integer', default: 5 })], responses: okRef() } },
+      '/api/recipes/random': {
+        get: {
+          summary: '随机推荐（今天吃什么）；提供 seed 时结果可复现',
+          parameters: [
+            q('count', '返回数量，默认 1，最大 20', { type: 'integer', default: 1 }),
+            q('seed', '随机种子：相同 seed 返回相同结果'),
+            q('category', '限定分类'),
+            q('difficulty', '限定难度 1-5', { type: 'integer', minimum: 1, maximum: 5 }),
+            imageModeParam(),
+          ],
+          responses: okRef(),
+        },
+      },
+      '/api/recipes/by-ingredients': {
+        get: {
+          summary: '按手头原料找菜：返回覆盖率与所缺原料（含常见别名匹配，如番茄=西红柿）',
+          parameters: [
+            q('have', '手头原料，逗号分隔，如 鸡蛋,西红柿', { required: false }),
+            q('mode', 'loose=按覆盖率排序（默认）；strict=原料齐全才返回', { schema: { type: 'string', enum: ['loose', 'strict'], default: 'loose' } }),
+            q('limit', '返回数量，默认 20，最大 50', { type: 'integer', default: 20 }),
+            imageModeParam(),
+          ],
+          responses: okRef(),
+        },
+      },
+      '/api/search': {
+        get: {
+          summary: '聚合搜索：菜谱 + 技巧文档一次返回',
+          parameters: [q('q', '搜索关键词（支持拼音）', { required: true }), imageModeParam()],
+          responses: okRef(),
+        },
+      },
+      '/api/stats': { get: { summary: '全库统计（分类 / 难度 / 烹饪方式分布、最常用原料 Top 15）', responses: okRef() } },
+      '/api/docs': { get: { summary: '交互式文档（Swagger UI）', responses: { 200: { description: 'text/html' } } } },
       '/api/tips': {
         get: {
           summary: '技巧文档列表 / 搜索',

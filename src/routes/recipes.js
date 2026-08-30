@@ -4,6 +4,7 @@ import { HttpError } from '../middleware/error.js';
 import { renderMarkdown } from '../lib/parser.js';
 import { buildImageEntries, imageEntryUrl, rewriteImageUrls } from '../lib/images.js';
 import { queryRecipes } from '../lib/search.js';
+import { matchByIngredients, relatedRecipes, hashSeed, mulberry32, pickRandom } from '../lib/discover.js';
 import { getStore, resolveImageMode, parsePagination, categoryTitle, docDir, pickFields } from './helpers.js';
 
 const router = Router();
@@ -23,7 +24,7 @@ function coverOf(recipe, dir, imageMode) {
   };
 }
 
-function summaryOf(recipe, imageMode) {
+export function summaryOf(recipe, imageMode) {
   const dir = docDir(recipe.path);
   const item = {
     id: recipe.id,
@@ -135,6 +136,86 @@ router.get('/', (req, res, next) => {
 
     const items = result.items.map((r) => pickFields(summaryOf(r, imageMode), req.query.fields));
     res.json({ data: items, meta: { ...result.meta, image_mode: imageMode } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/* ------------------------------------------------------------------ */
+/* 随机推荐 / 按原料找菜（须注册在 /:id 之前）                              */
+/* ------------------------------------------------------------------ */
+
+// GET /api/recipes/random?count=1&seed=xxx&category=&difficulty=
+router.get('/random', (req, res, next) => {
+  try {
+    const store = getStore(req);
+    const imageMode = resolveImageMode(req);
+    let items = store.listRecipes();
+    if (req.query.category) {
+      const category = String(req.query.category);
+      if (!store.categories.some((c) => c.id === category)) {
+        throw new HttpError(400, 'INVALID_CATEGORY', `未知分类：${category}，见 GET /api/categories`);
+      }
+      items = items.filter((r) => r.category === category);
+    }
+    const difficulty = Number.parseInt(req.query.difficulty, 10);
+    if (Number.isNaN(difficulty) === false && difficulty >= 1 && difficulty <= 5) {
+      items = items.filter((r) => r.difficulty === difficulty);
+    }
+    if (items.length === 0) {
+      throw new HttpError(404, 'NO_MATCHING_RECIPES', '过滤条件下没有可选菜谱');
+    }
+    const count = Math.min(Math.max(1, Number.parseInt(req.query.count, 10) || 1), 20);
+    const seed = req.query.seed ? String(req.query.seed) : Date.now().toString(36);
+    const picks = pickRandom(items, count, mulberry32(hashSeed(seed)));
+    res.json({
+      data: picks.map((r) => summaryOf(r, imageMode)),
+      meta: { count: picks.length, seed, total_available: items.length, image_mode: imageMode },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/recipes/by-ingredients?have=鸡蛋,西红柿&mode=loose&limit=20
+router.get('/by-ingredients', (req, res, next) => {
+  try {
+    const store = getStore(req);
+    const imageMode = resolveImageMode(req);
+    const have = String(req.query.have || '')
+      .split(/[,，、]/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (have.length === 0) {
+      throw new HttpError(400, 'MISSING_HAVE', '缺少 have 参数（逗号分隔的手头原料，如 have=鸡蛋,西红柿）');
+    }
+    const mode = req.query.mode || 'loose';
+    if (!['loose', 'strict'].includes(mode)) {
+      throw new HttpError(400, 'INVALID_MODE', 'mode 必须是 loose（按覆盖率排序）或 strict（原料齐全才返回）');
+    }
+    const limit = Math.min(Math.max(1, Number.parseInt(req.query.limit, 10) || 20), 50);
+
+    let matched = [];
+    for (const r of store.listRecipes()) {
+      const match = matchByIngredients(r, have);
+      if (mode === 'strict' && match.missing.length > 0) continue;
+      if (match.hit_count === 0) continue;
+      matched.push({ recipe: r, match });
+    }
+    matched.sort(
+      (a, b) =>
+        b.match.coverage - a.match.coverage ||
+        a.match.total - b.match.total ||
+        a.recipe.path.localeCompare(b.recipe.path, 'zh-Hans-CN')
+    );
+    matched = matched.slice(0, limit);
+    res.json({
+      data: matched.map(({ recipe, match }) => ({
+        ...summaryOf(recipe, imageMode),
+        ingredients_match: match,
+      })),
+      meta: { have, mode, matched: matched.length, total_recipes: store.recipes.size, image_mode: imageMode },
+    });
   } catch (err) {
     next(err);
   }
@@ -276,9 +357,24 @@ router.get('/:id/html', loadRecipe, (req, res) => {
   res.type('text/html; charset=utf-8').send(html);
 });
 
+// 相似菜谱（原料重合度 + 同分类加权）
+router.get('/:id/related', loadRecipe, (req, res) => {
+  const imageMode = resolveImageMode(req);
+  const r = res.locals.recipe;
+  const limit = Math.min(Math.max(1, Number.parseInt(req.query.limit, 10) || 5), 20);
+  const related = relatedRecipes(getStore(req), r, limit);
+  res.json({
+    data: related.map(({ recipe, score, shared_ingredients }) => ({
+      ...summaryOf(recipe, imageMode),
+      score,
+      shared_ingredients,
+    })),
+    meta: { id: r.id, title: r.title, limit, image_mode: imageMode },
+  });
+});
+
 // 原始文件
-router.get('/:id/raw', loadRecipe, (req, res, next) => {
-  const store = getStore(req);
+router.get('/:id/raw', loadRecipe, (req, res, next) => {  const store = getStore(req);
   const r = res.locals.recipe;
   const abs = path.resolve(store.repoRoot, r.path);
   const rootWithSep = store.repoRoot.endsWith(path.sep) ? store.repoRoot : store.repoRoot + path.sep;

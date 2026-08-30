@@ -1,0 +1,21 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - name: 获取菜谱内容（完整克隆，保留 git 历史供作者/时间元数据）
+        run: git clone --no-tags https://github.com/Anduin2017/HowToCook.git content
+      - run: npm ci
+      - name: 冒烟测试
+        run: npm run smoke

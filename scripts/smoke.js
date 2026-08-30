@@ -173,6 +173,43 @@ try {
     const list = await getJson('/api/recipes?page_size=1&fields=title,difficulty');
     check('fields 裁剪（保留 id/path）', 'id' in list.body.data[0] && 'path' in list.body.data[0] && !('author' in list.body.data[0]));
   }
+
+  console.log('[10] 发现与统计');
+  {
+    const rnd = await getJson('/api/recipes/random?count=3&seed=abc');
+    check('random 返回 3 个', rnd.body.data.length === 3 && rnd.body.meta.seed === 'abc');
+    const rnd2 = await getJson('/api/recipes/random?count=3&seed=abc');
+    check('同 seed 结果可复现', rnd.body.data[0].id === rnd2.body.data[0].id);
+    const rndCat = await getJson('/api/recipes/random?category=soup&count=5');
+    check('random 分类过滤', rndCat.body.data.every((x) => x.category.id === 'soup') && rndCat.body.data.length > 0);
+
+    const byIng = await getJson(`/api/recipes/by-ingredients?have=${encodeURIComponent('鸡蛋,西红柿')}&limit=50`);
+    check('by-ingredients 返回覆盖率结构', byIng.body.data.length > 0 && 'coverage' in byIng.body.data[0].ingredients_match);
+    // 别名匹配：have=番茄 应同样命中原料写作"西红柿"的菜谱
+    const byIngAlias = await getJson(`/api/recipes/by-ingredients?have=${encodeURIComponent('番茄,鸡蛋')}&limit=50`);
+    const tomato = byIngAlias.body.data.find((x) => x.title === '西红柿炒鸡蛋');
+    check('别名匹配（番茄→西红柿）', tomato && tomato.ingredients_match.hit_count >= 2, tomato ? JSON.stringify(tomato.ingredients_match) : '未找到西红柿炒鸡蛋');
+    // strict 模式：返回的每一条都必须原料齐全
+    const strict = await getJson(`/api/recipes/by-ingredients?have=${encodeURIComponent('鸡蛋,西红柿')}&mode=strict&limit=50`);
+    check('strict 模式全部原料齐全', strict.body.data.every((x) => x.ingredients_match.missing.length === 0));
+    check('strict 结果是 loose 的子集', strict.body.meta.matched <= byIng.body.meta.matched);
+    const noHave = await getJson('/api/recipes/by-ingredients');
+    check('缺 have 参数 400', noHave.status === 400);
+
+    const rel = await getJson(`/api/recipes/${XL_ID}/related?limit=3`);
+    check('related 返回相似菜谱', rel.body.data.length === 3 && rel.body.data[0].score > 0);
+
+    const stats = await getJson('/api/stats');
+    check('stats 全库统计', stats.body.data.recipes === 368 && stats.body.data.top_ingredients.length > 0 && stats.body.data.difficulty['4'] > 0);
+
+    const agg = await getJson(`/api/search?q=${encodeURIComponent('蛋炒饭')}`);
+    check('聚合搜索菜谱+技巧', agg.body.data.recipes.items.length > 0 && Array.isArray(agg.body.data.tips.items));
+    const aggEmpty = await getJson('/api/search');
+    check('聚合搜索缺 q 400', aggEmpty.status === 400);
+
+    const docs = await textOf(await fetch(assertLocalUrl(BASE + '/api/docs')));
+    check('/api/docs Swagger UI 页', docs.status === 200 && docs.text.includes('swagger-ui'));
+  }
 } catch (err) {
   failed++;
   console.error('冒烟测试异常中断:', err);

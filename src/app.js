@@ -1,5 +1,6 @@
 import express from 'express';
 import { securityHeaders, cors } from './middleware/security.js';
+import { accessLog } from './middleware/access-log.js';
 import { notFoundHandler, errorHandler } from './middleware/error.js';
 import { assetsHandler } from './routes/assets.js';
 import apiRouter from './routes/index.js';
@@ -13,6 +14,7 @@ export function createApp(store) {
 
   app.use(securityHeaders);
   app.use(cors);
+  app.use(accessLog);
 
   app.get('/', (req, res) => res.redirect('/api'));
   app.use('/api', apiRouter);

@@ -53,17 +53,23 @@ Docker 部署与开机自启动见 [DEPLOY.md](./DEPLOY.md)。
 | `GET /api/health` | 健康检查（索引统计） |
 | `GET /api/categories` | 分类列表（中文名 + 数量） |
 | `GET /api/recipes` | 菜谱列表 / 搜索 / 过滤 / 分页 |
+| `GET /api/recipes/random` | 随机推荐（今天吃什么）：`count`、`seed`（相同 seed 结果可复现）、`category`、`difficulty` |
+| `GET /api/recipes/by-ingredients` | 按手头原料找菜：`have=鸡蛋,西红柿`（含常见别名如 番茄=西红柿），返回覆盖率与所缺原料；`mode=strict` 只返回原料齐全的 |
+| `GET /api/recipes/:id/related` | 相似菜谱推荐（原料重合度 + 同分类加权） |
 | `GET /api/recipes/:id` | 完整结构化 JSON（含 markdown + html 全文） |
 | `GET /api/recipes/:id/meta` | 元信息（作者 / 编写时间 / 更新时间 / 难度 / 卡路里 / 封面） |
 | `GET /api/recipes/:id/ingredients` | 原料与数量 |
 | `GET /api/recipes/:id/tools` | 工具清单 |
 | `GET /api/recipes/:id/steps` | 烹饪步骤（含 H3 分组） |
-| `GET /api/recipes/:id/sections` | 原始 H2 段落(markdown + html) |
+| `GET /api/recipes/:id/sections` | 原始 H2 段落（markdown + html） |
 | `GET /api/recipes/:id/notes` | 附加内容 |
 | `GET /api/recipes/:id/images` | 图片资源清单 |
 | `GET /api/recipes/:id/markdown` | 完整 Markdown（图片地址按模式重写） |
 | `GET /api/recipes/:id/html` | 正文 HTML 片段（仅正文，无 html/head/body） |
 | `GET /api/recipes/:id/raw` | 原始 Markdown 文件 |
+| `GET /api/search` | 聚合搜索：菜谱 + 技巧文档一次返回 |
+| `GET /api/stats` | 全库统计（分类 / 难度 / 烹饪方式分布、最常用原料 Top 15） |
+| `GET /api/docs` | 交互式 API 文档（Swagger UI，读取 openapi.json） |
 | `GET /api/tips` / `/api/tips/:id`（+ `meta` / `markdown` / `html` / `raw`） | 烹饪技巧文档 |
 | `GET /assets/*` | 图片等静态资源分发 |
 
