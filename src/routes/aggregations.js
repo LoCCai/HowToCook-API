@@ -1,11 +1,63 @@
 import { Router } from 'express';
 import { HttpError } from '../middleware/error.js';
-import { buildStats } from '../lib/discover.js';
+import { buildStats, hashSeed, mulberry32, pickRandom } from '../lib/discover.js';
 import { queryRecipes, queryTips } from '../lib/search.js';
 import { getStore, resolveImageMode } from './helpers.js';
 import { summaryOf } from './recipes.js';
 
 const router = Router();
+
+// GET /api/menu?seed=&meat=1&vegetable=1&soup=1&max_difficulty= —— 自动配一餐（荤+素+汤）
+router.get('/menu', (req, res, next) => {
+  try {
+    const store = getStore(req);
+    const imageMode = resolveImageMode(req);
+    const seed = req.query.seed ? String(req.query.seed) : Date.now().toString(36);
+    const rng = mulberry32(hashSeed(`menu:${seed}`));
+
+    const clampSlot = (v) => Math.min(3, Math.max(0, Number.parseInt(v, 10) || 0));
+    const slots = {
+      meat: req.query.meat != null ? clampSlot(req.query.meat) : 1,
+      vegetable: req.query.vegetable != null ? clampSlot(req.query.vegetable) : 1,
+      soup: req.query.soup != null ? clampSlot(req.query.soup) : 1,
+    };
+    if (slots.meat + slots.vegetable + slots.soup === 0) {
+      throw new HttpError(400, 'EMPTY_MENU', '至少需要一个槽位：meat / vegetable / soup');
+    }
+    const maxDiffRaw = Number.parseInt(req.query.max_difficulty, 10);
+    const maxDiff = Number.isNaN(maxDiffRaw) ? null : Math.min(5, Math.max(1, maxDiffRaw));
+
+    // 荤菜池包含荤菜与水产
+    const poolBy = (categories) =>
+      store
+        .listRecipes()
+        .filter((r) => categories.includes(r.category) && (maxDiff == null || (r.difficulty != null && r.difficulty <= maxDiff)));
+
+    const pools = {
+      meat: poolBy(['meat_dish', 'aquatic']),
+      vegetable: poolBy(['vegetable_dish']),
+      soup: poolBy(['soup']),
+    };
+
+    const data = {};
+    for (const [slot, count] of Object.entries(slots)) {
+      // 同一 rng 依次抽取，保证相同 seed 得到相同整桌
+      data[slot] = count > 0 ? pickRandom(pools[slot], count, rng).map((r) => summaryOf(r, imageMode)) : [];
+    }
+    res.json({
+      data,
+      meta: {
+        seed,
+        slots,
+        max_difficulty: maxDiff,
+        pool_sizes: { meat: pools.meat.length, vegetable: pools.vegetable.length, soup: pools.soup.length },
+        image_mode: imageMode,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
 
 // GET /api/search?q= —— 聚合搜索：一次请求同时返回菜谱与技巧文档
 router.get('/search', (req, res, next) => {

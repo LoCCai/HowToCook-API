@@ -200,6 +200,7 @@ docker compose down                  # 停止并移除容器（镜像保留）
 | `ASSET_BASE_URL` | 空 | 资源反代地址，配置后默认图片模式自动变为 proxy |
 | `DEFAULT_IMAGE_MODE` | `server`（配反代则 `proxy`） | 默认图片模式，任意端点可用 `?image_mode=` 覆盖 |
 | `WATCH` | `0` | 容器内保持 0（内容已打入镜像，改内容走重建镜像流程） |
+| `RATE_LIMIT_MAX` | `0`（不限） | 公网部署建议 120；限流按 IP，反代后记得 `TRUST_PROXY=1` |
 
 ## 8. 常见问题
 

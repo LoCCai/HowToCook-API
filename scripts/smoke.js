@@ -43,6 +43,49 @@ async function waitReady() {
   throw new Error('服务未在超时内就绪');
 }
 
+/** 限流验证：用独立端口起一个 RATE_LIMIT_MAX=5 的实例，第 6 个请求应 429。 */
+async function testRateLimit() {
+  const PORT2 = 37891;
+  const BASE2 = `http://127.0.0.1:${PORT2}`;
+  const server2 = spawn('node', ['src/index.js'], {
+    cwd: path.resolve(here, '..'),
+    env: { ...process.env, PORT: String(PORT2), HOST: '127.0.0.1', RATE_LIMIT_MAX: '5', RATE_LIMIT_WINDOW_MS: '60000', WATCH: '0' },
+    stdio: ['ignore', 'ignore', 'pipe'],
+  });
+  server2.stderr.on('data', () => {});
+  try {
+    let ready = false;
+    for (let i = 0; i < 60 && !ready; i++) {
+      try {
+        ready = (await fetch(`${BASE2}/api/health`)).ok;
+      } catch {}
+      if (!ready) await new Promise((res) => setTimeout(res, 250));
+    }
+    if (!ready) {
+      check('限流实例就绪', false);
+      return;
+    }
+    // health 不限流：连续探测也不消耗配额
+    for (let i = 0; i < 5; i++) {
+      const r = await fetch(`${BASE2}/api/health`);
+      check(`health 不受限流（第 ${i + 1} 次）`, r.status === 200);
+    }
+    const codes = [];
+    let lastHeaders = null;
+    for (let i = 0; i < 6; i++) {
+      const r = await fetch(`${BASE2}/api/categories`);
+      codes.push(r.status);
+      lastHeaders = r.headers;
+    }
+    check('第 6 个请求被限流 429', codes[5] === 429, `codes=${codes.join(',')}`);
+    check('429 带 Retry-After', (lastHeaders.get('retry-after') || '') !== '');
+    const limited = codes[5] === 429 ? await (await fetch(`${BASE2}/api/categories`)).json() : null;
+    check('429 错误结构', limited?.error?.code === 'RATE_LIMITED');
+  } finally {
+    server2.kill();
+  }
+}
+
 try {
   await waitReady();
   // 测试辅助：仅允许请求本地冒烟服务基址，其它一律拒绝（防 SSRF 的固定基址校验）
@@ -52,7 +95,7 @@ try {
   };
   const getJson = async (p) => {
     const r = await fetch(assertLocalUrl(BASE + p));
-    return { status: r.status, body: await r.json() };
+    return { status: r.status, headers: r.headers, body: await r.json() };
   };
   const textOf = async (res) => ({ status: res.status, text: await res.text() });
 
@@ -210,6 +253,37 @@ try {
     const docs = await textOf(await fetch(assertLocalUrl(BASE + '/api/docs')));
     check('/api/docs Swagger UI 页', docs.status === 200 && docs.text.includes('swagger-ui'));
   }
+
+  console.log('[11] 套餐 / 归一统计 / 限流 / 缓存头');
+  {
+    const menu = await getJson('/api/menu?seed=dinner&max_difficulty=3');
+    const m = menu.body.data;
+    check('menu 三槽各 1 道', m.meat.length === 1 && m.vegetable.length === 1 && m.soup.length === 1);
+    check('menu 荤菜池分类正确', ['meat_dish', 'aquatic'].includes(m.meat[0].category.id) && m.vegetable[0].category.id === 'vegetable_dish' && m.soup[0].category.id === 'soup');
+    check('menu 难度上限生效', [m.meat[0], m.vegetable[0], m.soup[0]].every((x) => x.difficulty <= 3));
+    const menu2 = await getJson('/api/menu?seed=dinner&max_difficulty=3');
+    check('menu 同 seed 整桌可复现', menu2.body.data.meat[0].id === m.meat[0].id && menu2.body.data.vegetable[0].id === m.vegetable[0].id && menu2.body.data.soup[0].id === m.soup[0].id);
+    const menuCustom = await getJson('/api/menu?meat=2&vegetable=0&soup=1&seed=x');
+    check('menu 槽位数量可调', menuCustom.body.data.meat.length === 2 && menuCustom.body.data.vegetable.length === 0 && menuCustom.body.data.soup.length === 1);
+    const menuEmpty = await getJson('/api/menu?meat=0&vegetable=0&soup=0');
+    check('menu 全空槽 400', menuEmpty.status === 400);
+
+    const stats = await getJson('/api/stats');
+    const topNames = stats.body.data.top_ingredients.map((i) => i.name);
+    check('stats 原料已归一（无「葱姜蒜」复合名）', !topNames.includes('葱姜蒜'));
+
+    // 默认不限流：无 X-RateLimit-Limit 头
+    const health = await getJson('/api/health');
+    check('默认不限流', health.headers.get('x-ratelimit-limit') === null);
+    check('health 响应 no-store', health.headers.get('cache-control') === 'no-store');
+    const list = await getJson('/api/recipes?page_size=1');
+    check('列表缓存头 max-age=60', (list.headers.get('cache-control') || '').includes('max-age=60'));
+    const detail = await getJson(`/api/recipes/${XL_ID}`);
+    check('详情缓存头 max-age=300', (detail.headers.get('cache-control') || '').includes('max-age=300'));
+  }
+
+  console.log('[12] 限流开启（独立实例）');
+  await testRateLimit();
 } catch (err) {
   failed++;
   console.error('冒烟测试异常中断:', err);

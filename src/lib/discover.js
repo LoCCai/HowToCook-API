@@ -3,6 +3,57 @@ import { isToolName } from './parser.js';
 const normalizeName = (s) => String(s || '').toLowerCase().replace(/[\s\u3000]+/g, '');
 
 /* ------------------------------------------------------------------ */
+/* 原料规范名归一（统计用）                                                */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 归一映射组：patterns 按「具体的在前、泛化的在后」排列，双向包含匹配。
+ * 例：「葱姜蒜」拆为 葱/姜/蒜 三项计数；「郫县豆瓣」并入 豆瓣酱；「橄榄油」并入 食用油。
+ */
+const CANONICAL_GROUPS = [
+  { canonical: '蚝油', patterns: ['蚝油'] },
+  { canonical: '香油', patterns: ['香油', '芝麻油', '麻油'] },
+  { canonical: '洋葱', patterns: ['洋葱'] },
+  { canonical: '食用油', patterns: ['食用油', '花生油', '玉米油', '菜籽油', '大豆油', '橄榄油', '调和油', '油'] },
+  { canonical: '生抽', patterns: ['生抽'] },
+  { canonical: '老抽', patterns: ['老抽'] },
+  { canonical: '酱油', patterns: ['酱油', '味极鲜', '豉油'] },
+  { canonical: '醋', patterns: ['醋', '米醋', '陈醋', '白醋', '香醋'] },
+  { canonical: '料酒', patterns: ['料酒', '黄酒'] },
+  { canonical: '糖', patterns: ['糖', '白糖', '白砂糖', '绵白糖', '砂糖', '冰糖'] },
+  { canonical: '盐', patterns: ['盐', '食盐'] },
+  { canonical: '胡椒粉', patterns: ['胡椒粉', '胡椒'] },
+  { canonical: '淀粉', patterns: ['淀粉', '生粉', '水淀粉'] },
+  { canonical: '辣椒', patterns: ['干辣椒', '小米辣', '辣椒'] },
+  { canonical: '花椒', patterns: ['花椒', '麻椒'] },
+  { canonical: '豆瓣酱', patterns: ['豆瓣酱', '郫县豆瓣', '豆瓣'] },
+  { canonical: '西红柿', patterns: ['西红柿', '番茄'] },
+  { canonical: '土豆', patterns: ['土豆', '马铃薯', '洋芋'] },
+  { canonical: '香菜', patterns: ['香菜', '芫荽'] },
+  { canonical: '葱', patterns: ['葱', '大葱', '小葱', '香葱', '葱花', '葱白'] },
+  { canonical: '姜', patterns: ['姜', '姜片', '姜末', '姜丝', '姜块'] },
+  { canonical: '蒜', patterns: ['蒜', '大蒜', '蒜末', '蒜瓣', '蒜片'] },
+  { canonical: '鸡蛋', patterns: ['鸡蛋', '蛋液', '全蛋'] },
+  { canonical: '面粉', patterns: ['面粉'] },
+];
+
+/**
+ * 原料名 → 规范名列表（多数为单项；复合名如「葱姜蒜」拆为多项）。
+ * 无法归一的保持原名返回。
+ */
+export function canonicalIngredients(name) {
+  const n = normalizeName(name);
+  if (n === '葱姜蒜') return ['葱', '姜', '蒜'];
+  for (const group of CANONICAL_GROUPS) {
+    for (const pattern of group.patterns) {
+      const pn = normalizeName(pattern);
+      if (n === pn || n.includes(pn) || pn.includes(n)) return [group.canonical];
+    }
+  }
+  return [name];
+}
+
+/* ------------------------------------------------------------------ */
 /* 原料别名与覆盖匹配                                                    */
 /* ------------------------------------------------------------------ */
 
@@ -135,7 +186,10 @@ export function buildStats(store) {
     difficulty[String(r.difficulty ?? 'unknown')] = (difficulty[String(r.difficulty ?? 'unknown')] || 0) + 1;
     for (const m of r.methods || []) methodCount.set(m, (methodCount.get(m) || 0) + 1);
     for (const ing of edibleIngredients(r)) {
-      ingredientCount.set(ing.name, (ingredientCount.get(ing.name) || 0) + 1);
+      // 归一后计数：「葱姜蒜」拆为三项、「郫县豆瓣」并入「豆瓣酱」等
+      for (const canonical of canonicalIngredients(ing.name)) {
+        ingredientCount.set(canonical, (ingredientCount.get(canonical) || 0) + 1);
+      }
     }
     if (r.calories) {
       calSum += r.calories.value;

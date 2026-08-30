@@ -46,4 +46,9 @@ export const config = {
   defaultImageMode,
   watch: /^(1|true|yes)$/i.test(process.env.WATCH || ''),
   repoRoot: REPO_ROOT,
+  // 每窗口每 IP 最大请求数；0 = 不限流（默认）
+  rateLimitMax: Math.max(0, Number.parseInt(process.env.RATE_LIMIT_MAX, 10) || 0),
+  rateLimitWindowMs: Math.max(1000, Number.parseInt(process.env.RATE_LIMIT_WINDOW_MS, 10) || 60000),
+  // 部署在反向代理之后时开启，使限流按 X-Forwarded-For 识别真实客户端 IP
+  trustProxy: /^(1|true|yes)$/i.test(process.env.TRUST_PROXY || ''),
 };

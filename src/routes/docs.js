@@ -15,6 +15,7 @@ router.get('/', (req, res) => {
     ['GET', '/api/categories', '菜谱分类列表（中文名 + 数量）'],
     ['GET', '/api/recipes', '菜谱列表 / 模糊搜索。参数：q、category、difficulty、max_difficulty、ingredient、sort、page、page_size、fields、image_mode'],
     ['GET', '/api/recipes/random', '随机推荐（今天吃什么）。参数：count、seed（可复现）、category、difficulty、image_mode'],
+    ['GET', '/api/menu', '自动配一餐（荤+素+汤组合）。参数：seed（可复现）、meat、vegetable、soup（各槽数量，默认 1，上限 3）、max_difficulty、image_mode'],
     ['GET', '/api/recipes/by-ingredients', '按手头原料找菜。参数：have（逗号分隔）、mode=loose|strict、limit、image_mode'],
     ['GET', '/api/recipes/:id', '单个菜谱完整结构化 JSON（含 markdown 与 html 全文）'],
     ['GET', '/api/recipes/:id/meta', '元信息：标题 / 分类 / 难度 / 卡路里 / 作者 / 编写时间 / 更新时间 / 封面'],
@@ -189,6 +190,20 @@ function openApiDocument() {
             q('have', '手头原料，逗号分隔，如 鸡蛋,西红柿', { required: false }),
             q('mode', 'loose=按覆盖率排序（默认）；strict=原料齐全才返回', { schema: { type: 'string', enum: ['loose', 'strict'], default: 'loose' } }),
             q('limit', '返回数量，默认 20，最大 50', { type: 'integer', default: 20 }),
+            imageModeParam(),
+          ],
+          responses: okRef(),
+        },
+      },
+      '/api/menu': {
+        get: {
+          summary: '自动配一餐：荤菜（含水产）+ 素菜 + 汤组合；提供 seed 时整桌可复现',
+          parameters: [
+            q('seed', '随机种子：相同 seed 返回相同整桌'),
+            q('meat', '荤菜数量，默认 1，上限 3', { type: 'integer', default: 1 }),
+            q('vegetable', '素菜数量，默认 1，上限 3', { type: 'integer', default: 1 }),
+            q('soup', '汤数量，默认 1，上限 3', { type: 'integer', default: 1 }),
+            q('max_difficulty', '难度上限 1-5', { type: 'integer', minimum: 1, maximum: 5 }),
             imageModeParam(),
           ],
           responses: okRef(),

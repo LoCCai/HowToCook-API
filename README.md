@@ -43,6 +43,14 @@ Docker 部署与开机自启动见 [DEPLOY.md](./DEPLOY.md)。
 | `ASSET_BASE_URL` | 空 | 资源反代地址，配置后默认图片模式变为 `proxy` |
 | `DEFAULT_IMAGE_MODE` | `server`（配了反代则 `proxy`） | 默认图片模式 |
 | `WATCH` | `0` | 内容变化自动重建索引 |
+| `RATE_LIMIT_MAX` | `0`（不限） | 每窗口每 IP 最大请求数；公网部署建议 120 左右 |
+| `RATE_LIMIT_WINDOW_MS` | `60000` | 限流窗口（毫秒） |
+| `TRUST_PROXY` | `0` | 部署在反向代理之后时设 1，限流按 X-Forwarded-For 识别真实 IP |
+
+## 缓存与限流
+
+- **缓存头**：详情/文档类 `Cache-Control: public, max-age=300`，列表/搜索/统计类 `max-age=60`，探活与随机类 `no-store`，静态图片 `max-age=86400`；响应同时带 Express 默认 ETag 供协商缓存
+- **限流**：内存令牌桶，按 IP 限流（`/api/health` 与 `/assets` 豁免），超限返回 429 + `Retry-After` 与 `X-RateLimit-*` 头；默认关闭，公网部署设置 `RATE_LIMIT_MAX` 开启 |
 
 ## 接口一览
 
@@ -54,6 +62,7 @@ Docker 部署与开机自启动见 [DEPLOY.md](./DEPLOY.md)。
 | `GET /api/categories` | 分类列表（中文名 + 数量） |
 | `GET /api/recipes` | 菜谱列表 / 搜索 / 过滤 / 分页 |
 | `GET /api/recipes/random` | 随机推荐（今天吃什么）：`count`、`seed`（相同 seed 结果可复现）、`category`、`difficulty` |
+| `GET /api/menu` | 自动配一餐（荤+素+汤组合，HowToCook 经典场景）：`seed` 可复现整桌、`meat/vegetable/soup` 各槽数量（默认 1，上限 3）、`max_difficulty` |
 | `GET /api/recipes/by-ingredients` | 按手头原料找菜：`have=鸡蛋,西红柿`（含常见别名如 番茄=西红柿），返回覆盖率与所缺原料；`mode=strict` 只返回原料齐全的 |
 | `GET /api/recipes/:id/related` | 相似菜谱推荐（原料重合度 + 同分类加权） |
 | `GET /api/recipes/:id` | 完整结构化 JSON（含 markdown + html 全文） |
@@ -68,7 +77,7 @@ Docker 部署与开机自启动见 [DEPLOY.md](./DEPLOY.md)。
 | `GET /api/recipes/:id/html` | 正文 HTML 片段（仅正文，无 html/head/body） |
 | `GET /api/recipes/:id/raw` | 原始 Markdown 文件 |
 | `GET /api/search` | 聚合搜索：菜谱 + 技巧文档一次返回 |
-| `GET /api/stats` | 全库统计（分类 / 难度 / 烹饪方式分布、最常用原料 Top 15） |
+| `GET /api/stats` | 全库统计（分类 / 难度 / 烹饪方式分布、最常用原料 Top 15；原料已归一：葱姜蒜拆分计数、豆瓣酱/生抽等合并规范名） |
 | `GET /api/docs` | 交互式 API 文档（Swagger UI，读取 openapi.json） |
 | `GET /api/tips` / `/api/tips/:id`（+ `meta` / `markdown` / `html` / `raw`） | 烹饪技巧文档 |
 | `GET /assets/*` | 图片等静态资源分发 |
