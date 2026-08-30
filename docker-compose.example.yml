@@ -1,0 +1,61 @@
+# 使用方法：复制本文件为 docker-compose.yml 后再修改（docker-compose.yml 已被 .gitignore
+# 忽略，git pull 永远不会与你的本地配置冲突）：
+#   cp docker-compose.example.yml docker-compose.yml
+#   vim docker-compose.yml
+#   docker compose up -d --build
+
+services:
+  howtocook-api:
+    build:
+      # 构建上下文为本仓库根目录；菜谱内容在构建期由 Dockerfile 克隆
+      context: .
+      dockerfile: Dockerfile
+    image: howtocook-api:latest
+    container_name: howtocook-api
+    # 开机 / 守护进程启动 / 崩溃后自动拉起；除非手动 docker stop（此时即使重启也不会再拉起）
+    # 若希望手动 stop 后重启仍拉起，改为 restart: always
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      PORT: "3000"
+      HOST: 0.0.0.0
+
+      # ---- 内容自动更新（推荐）：定时跟进上游最新菜谱，无需重建镜像 ----
+      CONTENT_AUTO_UPDATE: "1"                  # 开启定时检查并自动拉取
+      CONTENT_UPDATE_INTERVAL_MINUTES: "1440"   # 检查间隔（分钟），最小 10
+
+      # ---- 公网部署必备 ----
+      # 手动触发 POST /api/content/update 时校验的令牌（请改成随机长字符串）
+      # UPDATE_TOKEN: "<自定义一个随机令牌>"
+      # 每 60s 每 IP 最大请求数；0 = 不限
+      # RATE_LIMIT_MAX: "120"
+      # 部署在反向代理之后时设 1，限流按 X-Forwarded-For 识别真实 IP
+      # TRUST_PROXY: "1"
+
+      # ---- 图片走 CDN / 反代时 ----
+      # 配置后默认图片模式自动变为 proxy，客户端从反代拉图：
+      # ASSET_BASE_URL: https://cdn.example.com/howtocook
+      # DEFAULT_IMAGE_MODE: proxy
+
+      # ---- 服务器需要代理访问 GitHub 时（构建期用 --build-arg 传，见 DEPLOY.md）----
+      # 运行时的自动更新（git fetch）会遵循以下变量；healthcheck 直连 127.0.0.1 不受影响
+      # HTTP_PROXY: "http://192.168.x.x:7890"
+      # HTTPS_PROXY: "http://192.168.x.x:7890"
+
+      # ---- 图片/内容目录挂载（进阶，见 DEPLOY.md 方式三）----
+      # CONTENT_DIR: /mnt/content
+    # volumes:
+    #   - /opt/HowToCook:/mnt/content:ro
+
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      start_period: 10s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

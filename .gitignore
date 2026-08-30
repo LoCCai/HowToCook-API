@@ -1,6 +1,8 @@
 # 依赖与环境
 node_modules/
 .env
+# 本地部署配置（从 docker-compose.example.yml 复制修改，不入库避免 git pull 冲突）
+docker-compose.yml
 
 # 本地克隆的菜谱内容（通过 submodule 或手动克隆获取，不入库）
 # 注意：若使用 submodule（git submodule add），content 的 gitlink 由 git 管理，不受此影响

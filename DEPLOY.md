@@ -5,7 +5,7 @@
 | 文件 | 作用 |
 | --- | --- |
 | `Dockerfile` | 镜像构建（node:22-alpine + git + 应用 + 官方内容仓库） |
-| `docker-compose.yml` | 编排：端口、健康检查、日志轮转、**自动重启策略** |
+| `docker-compose.example.yml` | 编排模板：端口、健康检查、日志轮转、**自动重启策略**（复制为 `docker-compose.yml` 后修改，后者已被 .gitignore 忽略，`git pull` 不会与你的配置冲突） |
 | `.dockerignore` | 缩小构建上下文（排除 node_modules / content 等） |
 
 ## 1. 前提条件
@@ -33,12 +33,15 @@ docker build \
 ### 方式一：docker compose（推荐）
 
 ```bash
+# 首次：从模板复制自己的部署配置（docker-compose.yml 已被 .gitignore 忽略）
+cp docker-compose.example.yml docker-compose.yml
+
 docker compose up -d          # 首次会自动构建镜像
 docker compose ps             # STATUS 应为 Up (healthy)
 curl http://127.0.0.1:3000/api/health
 ```
 
-需要自定义反代地址等环境变量时，直接编辑 `docker-compose.yml` 中的 `environment` 段（已留注释位），然后 `docker compose up -d` 重建。
+需要自定义环境变量（令牌、自动更新、代理等，均已留注释位）时，编辑**你自己的** `docker-compose.yml`，然后 `docker compose up -d` 重建。由于该文件不入库，之后 `git pull` 拉取新代码永远不会与你的配置冲突。
 
 ### 方式二：docker run
 
@@ -63,7 +66,7 @@ curl http://127.0.0.1:3000/api/health
 
 ### 4.1 容器层：restart 策略
 
-`docker-compose.yml` 已内置：
+编排模板（`docker-compose.example.yml`）已内置：
 
 ```yaml
 restart: unless-stopped
