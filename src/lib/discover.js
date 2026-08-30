@@ -356,12 +356,31 @@ export function buildWeekPlan(store, { days = 7, slots = { meat: [1], vegetable:
 
 const UNIT_NORMALIZE = { 克: 'g', 千克: 'kg', 公斤: 'kg', 毫克: 'mg', 毫升: 'ml', 升: 'l', 大卡: 'kcal' };
 
-/** 解析数量字符串为 { value, unit }；区间取中值；不可解析（适量/中文数量词）返回 null。 */
+const CN_DIGIT = { 零: 0, 一: 1, 二: 2, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 };
+
+/** 中文数字 → 阿拉伯（半=0.5、两=2、十~九十九）；无法解析返回 null。 */
+function cnToInt(cn) {
+  if (cn === '半') return 0.5;
+  if (/^[一二两三四五六七八九]$/.test(cn)) return CN_DIGIT[cn];
+  const m = cn.match(/^([一二两三四五六七八九])?十([一二三四五六七八九])?$/);
+  if (m) {
+    return (m[1] ? CN_DIGIT[m[1]] : 1) * 10 + (m[2] ? CN_DIGIT[m[2]] : 0);
+  }
+  return null;
+}
+
+const UNIT_CHARS = '克|千克|公斤|毫克|毫升|大卡|g|kg|mg|ml|mL|L|升|斤|两|个|只|条|根|片|瓣|张|滴|块|杯|罐|瓶|袋|把|勺|匙|撮|粒|颗|枚|份';
+
+/** 解析数量字符串为 { value, unit }；区间取中值；中文数量词（两片/半根/八个）自动转换；不可解析返回 null。 */
 export function parseAmount(quantityStr) {
-  const s = String(quantityStr || '').trim();
-  const m = s.match(
-    /^(\d+(?:\.\d+)?)\s*(?:[-~—到至]\s*(\d+(?:\.\d+)?))?\s*(克|千克|公斤|毫克|毫升|大卡|g|kg|mg|ml|mL|L|升|斤|两|个|只|条|根|片|瓣|张|滴|块|杯|罐|瓶|袋|把|勺|匙|撮|粒|颗|枚|份)?\s*$/i
-  );
+  let s = String(quantityStr || '').trim();
+  // 中文数量词预处理：'两片' → '2 片'、'半根' → '0.5 根'、'八个' → '8 个'
+  const cn = s.match(new RegExp(`^([半一二两三四五六七八九十]+)\\s*(${UNIT_CHARS})$`, 'i'));
+  if (cn) {
+    const v = cnToInt(cn[1]);
+    if (v != null) s = `${v} ${cn[2]}`;
+  }
+  const m = s.match(new RegExp(`^(\\d+(?:\\.\\d+)?)\\s*(?:[-~—到至]\\s*(\\d+(?:\\.\\d+)?))?\\s*(${UNIT_CHARS})?\\s*$`, 'i'));
   if (!m) return null;
   const first = parseFloat(m[1]);
   const value = m[2] != null ? (first + parseFloat(m[2])) / 2 : first;
@@ -374,10 +393,12 @@ export function parseAmount(quantityStr) {
 /**
  * 合并多个菜谱的原料为购物清单：
  * - 以规范名归一聚合（番茄/西红柿合并），排除工具；
- * - 可解析数量按「同名同单位」相加（servingsFactor 线性缩放）；
+ * - 可解析数量按「同名同单位」相加；两类数量的缩放系数不同：
+ *   静态量（2 人份基准）乘 staticFactor（servings/2），
+ *   每份量（「1.5 个 * 份数」公式型）乘 perServingFactor（servings）；
  * - 不可解析数量（适量/若干）归入 unspecified 保留原文。
  */
-export function buildShoppingList(store, recipeIds, servingsFactor = 1) {
+export function buildShoppingList(store, recipeIds, { staticFactor = 1, perServingFactor = 1 } = {}) {
   const items = new Map(); // canonical -> entry
   const resolved = [];
   const notFound = [];
@@ -396,10 +417,11 @@ export function buildShoppingList(store, recipeIds, servingsFactor = 1) {
       const entry = items.get(canonical);
       entry.display_names.add(ing.name);
       entry.recipes.add(recipe.title);
+      const factor = ing.per_serving ? perServingFactor : staticFactor;
       const amount = parseAmount(ing.quantity);
       if (amount) {
-        const value = Math.round(amount.value * servingsFactor * 100) / 100;
-        const bucket = entry.amounts.get(amount.unit) || { unit: amount.unit, value: 0, scaled: servingsFactor !== 1 };
+        const value = Math.round(amount.value * factor * 100) / 100;
+        const bucket = entry.amounts.get(amount.unit) || { unit: amount.unit, value: 0, scaled: factor !== 1 };
         bucket.value = Math.round((bucket.value + value) * 100) / 100;
         entry.amounts.set(amount.unit, bucket);
       } else if (ing.quantity) {

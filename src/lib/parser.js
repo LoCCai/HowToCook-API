@@ -105,7 +105,12 @@ export function parseRequirementItem(line) {
   return { name, optional, note, raw };
 }
 
-/** 「计算」列表项：- 名称 数量（备注） / - 名称 = 数量 / - 名称的用量为 X。 */
+/**
+ * 「计算」列表项：- 名称 数量（备注） / - 名称 = 数量 / - 名称的用量为 X / - 名称：数量。
+ * 公式型数量（「1.5 个 * 份数，向上取整」「4ml * 鸡蛋/个」）会被规范化：
+ * quantity 保留每份基准值（如「1.5 个」），per_serving=true，乘数说明进 quantity_note——
+ * 这类数量语义即「每份数量」，可直接参与购物清单聚合与份数缩放。
+ */
 export function parseQuantityItem(line) {
   const m = line.match(LIST_ITEM_RE);
   const raw = (m ? m[1] : line).trim();
@@ -116,19 +121,49 @@ export function parseQuantityItem(line) {
     note = pm[1];
     t = t.slice(0, pm.index).trim();
   }
+
+  let name;
+  let quantity;
   const eq = t.match(QTY_EQ_RE);
   if (eq) {
-    return { name: eq[1].trim(), quantity: eq[2].trim().replace(/。$/, ''), note, raw };
+    name = eq[1].trim();
+    quantity = eq[2].trim().replace(/。$/, '');
+  } else {
+    const sentence = t.match(QTY_SENTENCE_RE);
+    if (sentence) {
+      name = sentence[1].trim();
+      quantity = sentence[2].trim();
+    } else {
+      const qm = t.match(QTY_RE);
+      if (qm) {
+        name = qm[1].trim();
+        quantity = qm[2].replace(/\s+/g, ' ').trim();
+      } else {
+        // 冒号分隔兜底：'名称：数量'（部分菜谱用冒号而非空格/等号）
+        const cm = t.match(/^([^：:]+)[：:]\s*(.+)$/);
+        if (cm) {
+          name = cm[1].trim();
+          quantity = cm[2].trim().replace(/。$/, '');
+        } else {
+          name = t.replace(/。$/, '');
+          quantity = null;
+        }
+      }
+    }
   }
-  const sentence = t.match(QTY_SENTENCE_RE);
-  if (sentence) {
-    return { name: sentence[1].trim(), quantity: sentence[2].trim(), note, raw };
+
+  // 公式型数量规范化：'* 份数' 类即每份数量语义
+  let per_serving = false;
+  let quantity_note = null;
+  if (quantity) {
+    const fm = quantity.match(/^(.*?)\s*\*\s*(.+)$/);
+    if (fm && fm[1].trim()) {
+      quantity = fm[1].trim();
+      quantity_note = fm[2].trim() || null;
+      per_serving = true; // '* 份数'、'* 鸡蛋/个' 等均为每份基准语义
+    }
   }
-  const qm = t.match(QTY_RE);
-  if (qm) {
-    return { name: qm[1].trim(), quantity: qm[2].replace(/\s+/g, ' ').trim(), note, raw };
-  }
-  return { name: t.replace(/。$/, ''), quantity: null, note, raw };
+  return { name, quantity, per_serving, quantity_note, note, raw };
 }
 
 const normalizeName = (s) => String(s || '').toLowerCase().replace(/\s+/g, '');
@@ -145,6 +180,8 @@ export function mergeIngredients(requirementItems, quantityItems) {
       name: req.name,
       optional: req.optional,
       quantity: null,
+      per_serving: false,
+      quantity_note: null,
       note: req.note,
       raw: req.raw,
     };
@@ -156,12 +193,16 @@ export function mergeIngredients(requirementItems, quantityItems) {
     const existing = byName.get(key);
     if (existing) {
       existing.quantity = q.quantity;
+      existing.per_serving = !!q.per_serving;
+      existing.quantity_note = q.quantity_note;
       if (!existing.note && q.note) existing.note = q.note;
     } else {
       const entry = {
         name: q.name,
         optional: false,
         quantity: q.quantity,
+        per_serving: !!q.per_serving,
+        quantity_note: q.quantity_note,
         note: q.note,
         raw: q.raw,
       };

@@ -422,6 +422,44 @@ try {
     const menuNote = await getJson('/api/menu?seed=feast');
     check('menu meta 带标签诚信说明', typeof menuNote.body.meta.diet_tags_note === 'string');
   }
+
+  console.log('[16] 上游数据兼容（公式型数量/中文数量词）');
+  {
+    // 公式型数量（韭菜炒蛋：'100g * 份数'）：解析层提取每份基准，可直接按份数缩放
+    const jiucai = await getJson(`/api/recipes?q=${encodeURIComponent('韭菜炒蛋')}&page_size=1`);
+    const jcId = jiucai.body.data[0]?.id;
+    if (jcId) {
+      const jc = await getJson(`/api/recipes/${jcId}/ingredients?servings=4`);
+      check('公式型数量 per_serving 标注', jc.body.data.some((i) => i.per_serving === true));
+      const formulaScaled = jc.body.data.find((i) => i.per_serving === true && i.scaled === true);
+      check('公式型数量按每份 ×servings 缩放', formulaScaled && formulaScaled.quantity_note != null && formulaScaled.quantity_original != null, JSON.stringify(formulaScaled));
+      const jcAmount = parseAmountClient(jc.body.data.find((i) => i.name === '韭菜'));
+      check('公式型 100g/份 ×4 = 400 g', jcAmount === 400, `got ${jcAmount}`);
+    } else {
+      check('找到韭菜炒蛋', false);
+    }
+
+    // 中文数量词（白灼虾：两片/一根/一把）：购物清单可聚合
+    const baizhuo = await getJson(`/api/recipes?q=${encodeURIComponent('白灼虾')}&page_size=1`);
+    const bzId = baizhuo.body.data[0]?.id;
+    if (bzId) {
+      const bz = await postJson(`/api/shopping-list?ids=${bzId}`);
+      const ginger = bz.body.data.items.find((i) => i.name === '姜');
+      check('中文数量词进清单（姜一块 = 1 块）', ginger && ginger.amounts.some((a) => a.unit === '块' && a.value === 1), JSON.stringify(ginger));
+      const cnScale = await postJson(`/api/shopping-list?ids=${bzId}&servings=4`);
+      const ginger2 = cnScale.body.data.items.find((i) => i.name === '姜');
+      check('中文数量词可缩放（×2）', ginger2 && ginger2.amounts.some((a) => a.unit === '块' && a.value === 2), JSON.stringify(ginger2));
+    } else {
+      check('找到白灼虾', false);
+    }
+  }
+
+  // 客户端侧小工具：从 ingredients 响应解析 '400 g' 的数值
+  function parseAmountClient(item) {
+    if (!item) return NaN;
+    const m = String(item.quantity).match(/^([\d.]+)/);
+    return m ? parseFloat(m[1]) : NaN;
+  }
 } catch (err) {
   failed++;
   console.error('冒烟测试异常中断:', err);

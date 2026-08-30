@@ -89,30 +89,30 @@ ${poolCapacity.map((p) => `| ${p.slot} | ${p.categories} | ${p.count} | ${p.days
 ${missingDifficulty.length ? `### 缺难度示例\n${fmtList(missingDifficulty.map((r) => r.path))}\n` : ''}
 ${missingCalories.length > 8 ? `### 缺卡路里示例\n${fmtList(missingCalories.map((r) => r.path))}\n` : ''}
 
-## 三、数量写法影响程序化聚合
+## 三、数量写法（API 已兼容，此处仅作信息性统计）
 
-1. **公式型数量**（${countOrAll(formulaQty)}）：写作「1.5 个 * 份数，向上取整」等，
-   含变量与取整规则，程序无法静态聚合到购物清单、也无法按份数缩放。
-   建议：数值直接写「基准 2 人份」的量，缩放需求交给消费端（API 已支持 ?servings=）。
-${formulaQty.length ? fmtList(formulaQty, 10) + '\n' : ''}
-2. **中文数量词**（${countOrAll(cnQty)}）：如「两片」「一个」，程序可读但无法参与数值缩放。
-   建议统一为「2 片」「1 个」。
-${cnQty.length ? fmtList(cnQty, 10) + '\n' : ''}
+以下两类写法 API 消费端已做兼容处理（公式型提取每份基准、中文数量词自动转数字），
+不影响购物清单聚合与份数缩放；但为可读性与长期一致性，仍建议规范化。
+
+1. **公式型数量**（${countOrAll(formulaQty)}）：如「1.5 个 * 份数，向上取整」，
+   语义为每份数量，API 已提取基准值（per_serving=true）。
+${formulaQty.length ? fmtList(formulaQty, 6) + '\n' : ''}
+2. **中文数量词**（${countOrAll(cnQty)}）：如「两片」「半个」，API 已自动转数字。
+${cnQty.length ? fmtList(cnQty, 6) + '\n' : ''}
 
 ## 四、疑似分类错位（供人工核对）
 
 ${likelyMisfiled.length ? likelyMisfiled.map((r) => `- ${r.path}（荤菜分类但原料未检出肉类，或素菜分类但标题含肉）`).join('\n') : '- 未发现'}
 ${suspiciousNames.length ? `\n### 标题以「汤」结尾但不在「汤与粥」分类\n${suspiciousNames.map((r) => `- ${r.path}`).join('\n')}\n` : ''}
 
-## 五、建议向上游推进的事项
+## 五、建议向上游推进的事项（均为可选的信息性建议，消费端已兼容）
 
-1. **数量写法规范化**：菜谱模板中明确「计算」段数量必须为基准份数的静态数值
-   （去掉 \`* 份数\` 类公式），缩放由消费端按 \`预估卡路里\` 旁新增的「基准份数」字段处理；
-   中文数量词改阿拉伯数字。
-2. **补齐结构化行**：缺难度 / 卡路里 / 时间的菜谱按模板补齐（CI 可加 lint 规则强制）。
+1. **数量写法**：公式型统一为「每份基准值」（保留取整说明在文字里），中文数量词改阿拉伯数字，
+   提升人读一致性。
+2. **补齐结构化行**：缺难度 / 卡路里 / 时间的菜谱按模板补齐。
 3. **分类核对**：第四节列表逐条确认归属。
 4. **早餐分类扩容**：当前早餐 ${poolCapacity.find((p) => p.slot === 'breakfast').count} 道，
-   若周计划要每日含早餐，7 天不重样勉强够用但多样性有限，欢迎投稿。
+   周计划每日含早餐时多样性有限，欢迎投稿。
 `;
 
 console.log(report);

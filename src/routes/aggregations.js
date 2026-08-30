@@ -45,7 +45,8 @@ router.get('/plan/week', (req, res, next) => {
     const { days: plan, repeats, unfilled } = buildWeekPlan(store, { days, slots, rng, maxDifficulty, excludeTags });
 
     const withShopping = req.query.with_shopping_list === '1';
-    let servingsFactor = 1;
+    let staticFactor = 1;
+    let perServingFactor = 1;
     let servings = null;
     if (req.query.servings != null) {
       const s = Number.parseInt(req.query.servings, 10);
@@ -53,7 +54,8 @@ router.get('/plan/week', (req, res, next) => {
         throw new HttpError(400, 'INVALID_SERVINGS', 'servings 必须是 1-100');
       }
       servings = s;
-      servingsFactor = s / 2; // HowToCook 菜谱默认基准 2 人份
+      staticFactor = s / 2;
+      perServingFactor = s;
     }
 
     const data = {
@@ -67,7 +69,7 @@ router.get('/plan/week', (req, res, next) => {
     };
     if (withShopping) {
       const allIds = plan.flatMap((d) => Object.keys(slots).flatMap((slot) => d[slot].map((r) => r.id)));
-      data.shopping_list = buildShoppingList(store, allIds, servingsFactor);
+      data.shopping_list = buildShoppingList(store, allIds, { staticFactor, perServingFactor });
     }
 
     res.json({
@@ -80,7 +82,7 @@ router.get('/plan/week', (req, res, next) => {
         exclude_tags: excludeTags,
         repeats, // 池子耗尽后重新洗牌，计划中允许出现重复菜
         unfilled, // 池子为空而未能提供的槽位次数
-        ...(withShopping ? { shopping_list: { items: data.shopping_list.items.length, servings, scaled: servingsFactor !== 1 } } : {}),
+        ...(withShopping ? { shopping_list: { items: data.shopping_list.items.length, servings, scaled: staticFactor !== 1 } } : {}),
         ...DIET_NOTE,
         image_mode: imageMode,
       },
@@ -104,15 +106,19 @@ router.post('/shopping-list', (req, res, next) => {
     if (ids.length > 50) {
       throw new HttpError(400, 'TOO_MANY_RECIPES', '一次最多合并 50 个菜谱');
     }
-    let factor = 1;
+    let staticFactor = 1;
+    let perServingFactor = 1;
+    let servings = null;
     if (req.query.servings != null) {
-      const servings = Number.parseInt(req.query.servings, 10);
-      if (Number.isNaN(servings) || servings < 1 || servings > 100) {
+      const s = Number.parseInt(req.query.servings, 10);
+      if (Number.isNaN(s) || s < 1 || s > 100) {
         throw new HttpError(400, 'INVALID_SERVINGS', 'servings 必须是 1-100');
       }
-      factor = servings / 2; // HowToCook 菜谱默认基准为 2 人份
+      servings = s;
+      staticFactor = s / 2; // 静态数量基准为 2 人份
+      perServingFactor = s; // 公式型数量（'* 份数'）本身即每份基准
     }
-    const result = buildShoppingList(store, ids, factor);
+    const result = buildShoppingList(store, ids, { staticFactor, perServingFactor });
     res.json({
       data: result,
       meta: { requested: ids.length, servings: req.query.servings != null ? Number.parseInt(req.query.servings, 10) : null, ...DIET_NOTE },

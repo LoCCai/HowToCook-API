@@ -276,10 +276,12 @@ router.get('/:id/meta', loadRecipe, (req, res) => {
   });
 });
 
-// 原料（含数量）；?servings=N 按基准份数线性缩放（基准从菜谱简介解析，默认 2 人份）
+// 原料（含数量）；?servings=N 按份数缩放：静态数量（2 人份基准）乘 servings/2，
+// 公式型每份量（'* 份数'）直接乘 servings；中文数量词（两片/半根）与适量类保留原文并标注
 router.get('/:id/ingredients', loadRecipe, (req, res) => {
   const r = res.locals.recipe;
-  let factor = 1;
+  let staticFactor = 1;
+  let perServingFactor = 1;
   let baseServings = null;
   let servings = null;
   if (req.query.servings != null) {
@@ -288,18 +290,20 @@ router.get('/:id/ingredients', loadRecipe, (req, res) => {
       throw new HttpError(400, 'INVALID_SERVINGS', 'servings 必须是 1-100');
     }
     baseServings = parseBaseServings(r.description);
-    factor = servings / baseServings;
+    staticFactor = servings / baseServings;
+    perServingFactor = servings;
   }
   const data = r.ingredients.map((ing) => {
     const item = { ...ing };
-    if (factor !== 1) {
+    if (perServingFactor !== 1) {
+      const factor = ing.per_serving ? perServingFactor : staticFactor;
       const scaled = scaleQuantity(ing.quantity, factor);
       item.quantity_original = ing.quantity;
       if (scaled) {
         item.quantity = scaled;
         item.scaled = true;
       } else {
-        item.scaled = false; // 适量/中文数量词等无法缩放，保留原文
+        item.scaled = false; // 适量/无法解析的数量保留原文
       }
     }
     return item;
@@ -310,7 +314,7 @@ router.get('/:id/ingredients', loadRecipe, (req, res) => {
       id: r.id,
       title: r.title,
       total: r.ingredients.length,
-      ...(servings != null ? { servings, base_servings: baseServings, factor: Math.round(factor * 1000) / 1000 } : {}),
+      ...(servings != null ? { servings, base_servings: baseServings, factor: Math.round(staticFactor * 1000) / 1000 } : {}),
     },
   });
 });
