@@ -31,7 +31,8 @@ router.get('/plan/week', (req, res, next) => {
     const store = getStore(req);
     const imageMode = resolveImageMode(req);
     const seed = req.query.seed ? String(req.query.seed) : Date.now().toString(36);
-    const rng = mulberry32(hashSeed(`week:${seed}:${req.query.with_shopping_list === '1' ? 'sl' : ''}`));
+    // 种子只由 seed 决定：开关 with_shopping_list 等附加选项不得影响抽取出的菜谱
+    const rng = mulberry32(hashSeed(`week:${seed}`));
 
     const days = Math.min(14, Math.max(1, Number.parseInt(req.query.days, 10) || 7));
     const { slots, total } = parsePlanSlots(req.query, days);
@@ -83,6 +84,7 @@ router.get('/plan/week', (req, res, next) => {
         repeats, // 池子耗尽后重新洗牌，计划中允许出现重复菜
         unfilled, // 池子为空而未能提供的槽位次数
         ...(withShopping ? { shopping_list: { items: data.shopping_list.items.length, servings, scaled: staticFactor !== 1 } } : {}),
+        ...(servings != null ? { static_factor: Math.round(staticFactor * 1000) / 1000, per_serving_factor: perServingFactor } : {}),
         ...DIET_NOTE,
         image_mode: imageMode,
       },

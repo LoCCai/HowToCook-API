@@ -38,8 +38,9 @@ const CANONICAL_GROUPS = [
 ];
 
 /**
- * 原料名 → 规范名列表（多数为单项；复合名如「葱姜蒜」拆为多项）。
- * 无法归一的保持原名返回。
+ * 校验原料名归属哪个规范组（构建期统计用）：
+ * 仅允许「原料名 == pattern」或「原料名包含 pattern」两种方向——
+ * 反向（pattern 包含原料名）会把「玉米」吞进「玉米油」这类误伤，刻意不用。
  */
 export function canonicalIngredients(name) {
   const n = normalizeName(name);
@@ -47,7 +48,7 @@ export function canonicalIngredients(name) {
   for (const group of CANONICAL_GROUPS) {
     for (const pattern of group.patterns) {
       const pn = normalizeName(pattern);
-      if (n === pn || n.includes(pn) || pn.includes(n)) return [group.canonical];
+      if (n === pn || n.includes(pn)) return [group.canonical];
     }
   }
   return [name];
@@ -221,7 +222,12 @@ export function buildStats(store) {
 /* 忌口 / 过敏原标签（启发式判定，供过滤与展示）                              */
 /* ------------------------------------------------------------------ */
 
-const MEAT_WORDS = ['肉', '鸡', '鸭', '鹅', '牛', '羊', '猪', '鱼', '虾', '蟹', '贝', '蚝', '鳝', '鱿', '火腿', '腊', '蛋', '奶', '黄油', '芝士', '奶酪'];
+const MEAT_WORDS = [
+  '肉', '鸡', '鸭', '鹅', '牛', '羊', '猪', '鱼', '虾', '蟹', '贝', '蚝', '鳝', '鱿',
+  '火腿', '腊肉', '腊肠', '腊味', '培根', '五花', '排骨', '肘', '蹄', '舌',
+  '肠', '肝', '肚', '翅', '爪',
+  '蛋', '奶', '黄油', '芝士', '奶酪',
+];
 const SPICY_WORDS = ['辣椒', '小米辣', '花椒', '麻椒', '藤椒', '胡椒', '辣'];
 const SEAFOOD_WORDS = ['鱼', '虾', '蟹', '贝', '蚝', '鳝', '鱿', '海米', '虾米', '虾皮', '紫菜', '海带', '蛤', '蛏'];
 const PEANUT_WORDS = ['花生'];

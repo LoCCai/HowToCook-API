@@ -423,6 +423,49 @@ try {
     check('menu meta 带标签诚信说明', typeof menuNote.body.meta.diet_tags_note === 'string');
   }
 
+  console.log('[17] 下游回归（归一误伤/素食词表/seed 稳定/双系数透明）');
+  {
+    // 回归 1：玉米不再被归一为食用油（反向 includes 误伤）
+    const soupSearch = await getJson(`/api/recipes?q=${encodeURIComponent('玉米排骨汤')}&page_size=1`);
+    const soupId = soupSearch.body.data[0]?.id;
+    if (soupId) {
+      const sl = await postJson(`/api/shopping-list?ids=${soupId}`);
+      const corn = sl.body.data.items.find((i) => i.name === '玉米');
+      check('shopping-list 保留「玉米」原名', corn !== undefined);
+      check('「玉米」不再并入食用油', !sl.body.data.items.some((i) => i.name === '食用油' && i.display_names.includes('玉米')));
+    } else {
+      check('找到玉米排骨汤', false);
+    }
+
+    // 回归 2：素食词表覆盖排骨/血肠
+    if (soupId) {
+      const soupDetail = await getJson(`/api/recipes/${soupId}`);
+      check('玉米排骨汤不再误判素食', !soupDetail.body.data.diet_tags.includes('vegetarian'));
+    }
+    const zhushacai = await getJson(`/api/recipes?q=${encodeURIComponent('杀猪菜')}&page_size=1`);
+    if (zhushacai.body.data[0]) {
+      const zs = await getJson(`/api/recipes/${zhushacai.body.data[0].id}`);
+      check('杀猪菜不再误判素食', !zs.body.data.diet_tags.includes('vegetarian'));
+    } else {
+      check('找到杀猪菜', false);
+    }
+    const vegList = await getJson('/api/recipes?tag=vegetarian&page_size=100');
+    check('素食列表不含玉米排骨汤', !vegList.body.data.some((x) => x.title === '玉米排骨汤'));
+
+    // 回归 3：seed 不受 with_shopping_list 影响
+    const w1 = await getJson('/api/plan/week?seed=stable&days=7');
+    const w2 = await getJson('/api/plan/week?seed=stable&days=7&with_shopping_list=1&servings=4');
+    check('开关购物清单不改变周计划菜谱', w1.body.data.days[0].meat[0].id === w2.body.data.days[0].meat[0].id && w1.body.data.days[6].soup[0].id === w2.body.data.days[6].soup[0].id);
+
+    // 回归 4：双系数透明（公式型项在 servings=1 时不变属正确语义，meta 需可解释）
+    const s1 = await getJson(`/api/recipes/${XL_ID}/ingredients?servings=1`);
+    check('meta 含双系数（factor + per_serving_factor）', s1.body.meta.factor === 0.5 && s1.body.meta.per_serving_factor === 1);
+    const formulaItem = s1.body.data.find((i) => i.per_serving === true);
+    if (formulaItem) {
+      check('公式型项 servings=1 保持不变（每份语义）', formulaItem.scaled === false && formulaItem.quantity === formulaItem.quantity_original);
+    }
+  }
+
   console.log('[16] 上游数据兼容（公式型数量/中文数量词）');
   {
     // 公式型数量（韭菜炒蛋：'100g * 份数'）：解析层提取每份基准，可直接按份数缩放

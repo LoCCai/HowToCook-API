@@ -314,7 +314,9 @@ router.get('/:id/ingredients', loadRecipe, (req, res) => {
       id: r.id,
       title: r.title,
       total: r.ingredients.length,
-      ...(servings != null ? { servings, base_servings: baseServings, factor: Math.round(staticFactor * 1000) / 1000 } : {}),
+      ...(servings != null
+        ? { servings, base_servings: baseServings, factor: Math.round(staticFactor * 1000) / 1000, per_serving_factor: perServingFactor, note: '静态数量乘 factor（servings/基准份数）；公式型每份量（per_serving=true）乘 per_serving_factor（=servings），故 servings=1 时公式型保持不变' }
+        : {}),
     },
   });
 });
