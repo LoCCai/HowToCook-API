@@ -51,4 +51,9 @@ export const config = {
   rateLimitWindowMs: Math.max(1000, Number.parseInt(process.env.RATE_LIMIT_WINDOW_MS, 10) || 60000),
   // 部署在反向代理之后时开启，使限流按 X-Forwarded-For 识别真实客户端 IP
   trustProxy: /^(1|true|yes)$/i.test(process.env.TRUST_PROXY || ''),
+  // 内容自动更新：定时检查上游（仅对 git 管理的内容目录生效）
+  contentAutoUpdate: /^(1|true|yes)$/i.test(process.env.CONTENT_AUTO_UPDATE || ''),
+  contentUpdateIntervalMinutes: Math.max(10, Number.parseInt(process.env.CONTENT_UPDATE_INTERVAL_MINUTES, 10) || 1440),
+  // 触发 POST /api/content/update 的令牌；留空 = 不校验（本地 / 内网部署）。只从环境变量读取，不入库不入码
+  updateToken: process.env.UPDATE_TOKEN || '',
 };

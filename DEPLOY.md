@@ -177,7 +177,20 @@ docker compose restart               # 重启
 docker compose down                  # 停止并移除容器（镜像保留）
 ```
 
-**不想每次重建镜像更新内容？** 把宿主机上的一份 HowToCook 检出挂载进容器，更新内容只需 `git -C /opt/HowToCook pull`：
+**方式二：开启运行时自动更新（推荐，无需重建镜像）**
+
+镜像内的内容目录自带完整 git 历史，直接开启自动更新即可，容器运行期间持续跟进上游最新菜谱：
+
+```yaml
+    environment:
+      CONTENT_AUTO_UPDATE: "1"
+      CONTENT_UPDATE_INTERVAL_MINUTES: "1440"   # 每天检查一次
+      UPDATE_TOKEN: "<自定义令牌>"              # 手动触发更新时校验
+```
+
+也可以手动触发：`curl -X POST -H "X-Update-Token: <令牌>" http://127.0.0.1:3000/api/content/update`，查看当前版本用 `curl http://127.0.0.1:3000/api/content`，检查是否有新版用 `curl http://127.0.0.1:3000/api/content/check`。
+
+**方式三：挂载宿主机 HowToCook 目录**（更新内容只需 `git -C /opt/HowToCook pull`，API 无需任何操作）：
 
 ```yaml
 # docker-compose.yml 追加

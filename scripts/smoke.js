@@ -26,7 +26,7 @@ function check(name, cond, detail = '') {
 // 参数为固定数组、无 shell，不涉及任何外部输入
 const server = spawn('node', ['src/index.js'], {
   cwd: path.resolve(here, '..'),
-  env: { ...process.env, PORT: String(PORT), HOST: '127.0.0.1', ASSET_BASE_URL: 'https://cdn.example.com/htc', WATCH: '0' },
+  env: { ...process.env, PORT: String(PORT), HOST: '127.0.0.1', ASSET_BASE_URL: 'https://cdn.example.com/htc', WATCH: '0', UPDATE_TOKEN: 'smoke-token' },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
 server.stdout.on('data', () => {});
@@ -296,6 +296,39 @@ try {
 
   console.log('[12] 限流开启（独立实例）');
   await testRateLimit();
+
+  console.log('[13] 内容版本与更新');
+  {
+    const info = await getJson('/api/content');
+    check('content 版本信息 tracked', info.body.data.tracked === true);
+    check('content commit 为 40 位哈希', /^[0-9a-f]{40}$/.test(info.body.data.commit || ''), `got ${info.body.data.commit}`);
+    check('content 响应 no-store', info.headers.get('cache-control') === 'no-store');
+
+    const noToken = await fetch(assertLocalUrl(BASE + '/api/content/update'), { method: 'POST' });
+    check('update 无令牌 403', noToken.status === 403);
+
+    // 检查更新依赖外网可达：200 为正常结果，502（上游不可达）也接受
+    const checkRes = await getJson('/api/content/check');
+    check(
+      'check 返回合法结构',
+      checkRes.status === 200
+        ? typeof checkRes.body.data.up_to_date === 'boolean' && /^[0-9a-f]{40}$/.test(checkRes.body.data.remote || '')
+        : checkRes.status === 502,
+      `status=${checkRes.status}`
+    );
+
+    // dry_run 只检查不拉取（绝不真更新测试环境的内容目录）
+    const dry = await fetch(assertLocalUrl(BASE + '/api/content/update?dry_run=1'), {
+      method: 'POST',
+      headers: { 'X-Update-Token': 'smoke-token' },
+    });
+    const dryBody = await dry.json();
+    check(
+      'dry_run 仅检查不拉取',
+      dry.status === 200 ? (dryBody.data.dry_run === true && dryBody.data.updated === false) : dry.status === 502,
+      `status=${dry.status}`
+    );
+  }
 } catch (err) {
   failed++;
   console.error('冒烟测试异常中断:', err);

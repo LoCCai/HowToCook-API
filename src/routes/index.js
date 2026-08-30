@@ -4,11 +4,13 @@ import categoriesRouter from './categories.js';
 import recipesRouter from './recipes.js';
 import tipsRouter from './tips.js';
 import aggregationsRouter from './aggregations.js';
+import contentRouter from './content.js';
 
 const api = Router();
 
 api.use('/', docsRouter);
 api.use('/', aggregationsRouter);
+api.use('/', contentRouter);
 api.use('/categories', categoriesRouter);
 api.use('/recipes', recipesRouter);
 api.use('/tips', tipsRouter);

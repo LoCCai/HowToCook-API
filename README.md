@@ -46,6 +46,9 @@ Docker 部署与开机自启动见 [DEPLOY.md](./DEPLOY.md)。
 | `RATE_LIMIT_MAX` | `0`（不限） | 每窗口每 IP 最大请求数；公网部署建议 120 左右 |
 | `RATE_LIMIT_WINDOW_MS` | `60000` | 限流窗口（毫秒） |
 | `TRUST_PROXY` | `0` | 部署在反向代理之后时设 1，限流按 X-Forwarded-For 识别真实 IP |
+| `CONTENT_AUTO_UPDATE` | `0` | 定时检查上游并自动拉取更新（仅对 git 管理的内容目录生效，即未设 `CONTENT_DIR` 的场景） |
+| `CONTENT_UPDATE_INTERVAL_MINUTES` | `1440` | 自动更新检查间隔（分钟，最小 10） |
+| `UPDATE_TOKEN` | 空 | `POST /api/content/update` 的令牌；留空 = 不校验（本地/内网），公网部署务必设置 |
 
 ## 缓存与限流
 
@@ -79,6 +82,9 @@ Docker 部署与开机自启动见 [DEPLOY.md](./DEPLOY.md)。
 | `GET /api/search` | 聚合搜索：菜谱 + 技巧文档一次返回 |
 | `GET /api/stats` | 全库统计（分类 / 难度 / 烹饪方式分布、最常用原料 Top 15；原料已归一：葱姜蒜拆分计数、豆瓣酱/生抽等合并规范名） |
 | `GET /api/docs` | 交互式 API 文档（Swagger UI，读取 openapi.json） |
+| `GET /api/content` | 内容版本信息（当前 commit / 上游地址 / 分支 / 工作区状态 / 最近检查与更新时间） |
+| `GET /api/content/check` | 联网检查上游是否有新版本 |
+| `POST /api/content/update` | 拉取上游更新并重建索引；`?dry_run=1` 仅检查；`UPDATE_TOKEN` 设置后需带 `X-Update-Token` 头 |
 | `GET /api/tips` / `/api/tips/:id`（+ `meta` / `markdown` / `html` / `raw`） | 烹饪技巧文档 |
 | `GET /assets/*` | 图片等静态资源分发 |
 

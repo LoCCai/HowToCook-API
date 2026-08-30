@@ -9,6 +9,7 @@ const NO_STORE = [
   /^\/api\/health$/,
   /^\/api\/recipes\/random$/,
   /^\/api\/menu$/,
+  /^\/api\/content/,
 ];
 
 const LIST_60S = [

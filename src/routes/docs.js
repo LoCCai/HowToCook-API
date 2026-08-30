@@ -33,6 +33,9 @@ router.get('/', (req, res) => {
     ['GET', '/api/stats', '全库统计（分类 / 难度 / 烹饪方式分布、最常用原料）'],
     ['GET', '/api/tips', '烹饪技巧文档列表 / 搜索（q、group、分页）'],
     ['GET', '/api/tips/:id', '技巧文档详情（+ /meta /markdown /html /raw）'],
+    ['GET', '/api/content', '内容版本信息（当前 commit / 上游 / 分支 / 最近检查与更新时间）'],
+    ['GET', '/api/content/check', '联网检查上游是否有新版本'],
+    ['POST', '/api/content/update', '拉取上游更新并重建索引（?dry_run=1 仅检查；UPDATE_TOKEN 开启时需 X-Update-Token）'],
     ['GET', '/assets/*', '图片等静态资源（按仓库相对路径分发）'],
   ];
   const rowsHtml = rows
@@ -217,6 +220,18 @@ function openApiDocument() {
         },
       },
       '/api/stats': { get: { summary: '全库统计（分类 / 难度 / 烹饪方式分布、最常用原料 Top 15）', responses: okRef() } },
+      '/api/content': { get: { summary: '内容版本信息（当前 commit / 上游 / 分支 / 工作区状态 / 最近检查与更新）', responses: okRef() } },
+      '/api/content/check': { get: { summary: '联网检查上游是否有新版本', responses: okRef() } },
+      '/api/content/update': {
+        post: {
+          summary: '拉取上游更新并重建索引（dry_run=1 仅检查不拉取；UPDATE_TOKEN 开启时需携带 X-Update-Token）',
+          parameters: [
+            q('dry_run', '传 1 时只检查不实际拉取'),
+            { name: 'X-Update-Token', in: 'header', required: false, schema: { type: 'string' }, description: 'UPDATE_TOKEN 开启时的更新令牌' },
+          ],
+          responses: okRef(),
+        },
+      },
       '/api/docs': { get: { summary: '交互式文档（Swagger UI）', responses: { 200: { description: 'text/html' } } } },
       '/api/tips': {
         get: {

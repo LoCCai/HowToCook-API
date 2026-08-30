@@ -8,12 +8,13 @@ import { assetsHandler } from './routes/assets.js';
 import apiRouter from './routes/index.js';
 import { config } from './config.js';
 
-export function createApp(store) {
+export function createApp(store, rebuild) {
   const app = express();
   app.disable('x-powered-by');
   if (config.trustProxy) app.set('trust proxy', true);
 
   app.locals.store = store;
+  app.locals.rebuild = rebuild; // 内容更新后重建索引用
 
   app.use(securityHeaders);
   app.use(cors);

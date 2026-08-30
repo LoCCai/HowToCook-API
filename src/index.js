@@ -4,6 +4,7 @@ import { config } from './config.js';
 import { Store } from './lib/scanner.js';
 import { buildRecipeSearchIndex, buildTipSearchIndex } from './lib/search.js';
 import { ensureContent } from './lib/content-fetcher.js';
+import { startAutoUpdate } from './lib/content-updater.js';
 import { createApp } from './app.js';
 
 const REBUILD_HOOKS = [buildRecipeSearchIndex, buildTipSearchIndex];
@@ -17,12 +18,25 @@ if (contentState.action === 'cloned') {
 const store = new Store(config.repoRoot);
 await store.rebuild(REBUILD_HOOKS);
 
-const app = createApp(store);
+const rebuild = () => store.rebuild(REBUILD_HOOKS);
+const app = createApp(store, rebuild);
+
 const server = app.listen(config.port, config.host, () => {
   console.log(`HowToCook API 已启动: http://${config.host}:${config.port}/api`);
   console.log(`  菜谱 ${store.recipes.size} 个 · 技巧 ${store.tips.size} 篇 · 图片模式默认 ${config.defaultImageMode}`);
   if (config.assetBaseUrl) console.log(`  资源反代地址: ${config.assetBaseUrl}`);
+  if (config.rateLimitMax) console.log(`  限流: 每 ${Math.round(config.rateLimitWindowMs / 1000)}s 每 IP ${config.rateLimitMax} 次`);
+  if (config.contentAutoUpdate) console.log(`  内容自动更新: 每 ${config.contentUpdateIntervalMinutes} 分钟检查一次上游`);
 });
+
+// 定时自动更新：检查上游 → 有新提交则拉取并重建索引（仅对 git 管理的内容目录生效）
+if (config.contentAutoUpdate) {
+  startAutoUpdate({
+    repoRoot: config.repoRoot,
+    rebuild,
+    intervalMs: config.contentUpdateIntervalMinutes * 60 * 1000,
+  });
+}
 
 // 开发模式：内容目录变化后防抖重建索引
 if (config.watch) {
