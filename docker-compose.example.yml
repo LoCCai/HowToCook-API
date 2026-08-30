@@ -10,6 +10,19 @@ services:
       # 构建上下文为本仓库根目录；菜谱内容在构建期由 Dockerfile 克隆
       context: .
       dockerfile: Dockerfile
+      # ---- 构建期代理（可选）----
+      # 服务器访问 GitHub 慢/失败时，取消注释并改成你的代理地址，
+      # 可同时加速构建期的 npm 依赖安装与内容仓库克隆。
+      # 注意：
+      # 1. 地址不能用 127.0.0.1（在构建容器里指容器自己），
+      #    要用 Docker 网桥的宿主机地址（默认 172.17.0.1）或宿主机局域网 IP
+      # 2. 代理软件需开启「允许局域网连接 / Allow LAN」
+      # 3. 大小写都传：git 认大写、curl 系认小写
+      # args:
+      #   HTTP_PROXY: http://172.17.0.1:7890
+      #   HTTPS_PROXY: http://172.17.0.1:7890
+      #   http_proxy: http://172.17.0.1:7890
+      #   https_proxy: http://172.17.0.1:7890
     image: howtocook-api:latest
     container_name: howtocook-api
     # 开机 / 守护进程启动 / 崩溃后自动拉起；除非手动 docker stop（此时即使重启也不会再拉起）

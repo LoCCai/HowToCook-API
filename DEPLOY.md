@@ -26,6 +26,30 @@ docker build \
   -t howtocook-api:latest .
 ```
 
+**构建期走本地代理（访问 GitHub 慢时）**：`HTTP_PROXY` / `HTTPS_PROXY` 是 Docker 预定义构建参数，不用改 Dockerfile，两种传法等价：
+
+```bash
+# 命令行直传
+docker build \
+  --build-arg HTTP_PROXY=http://172.17.0.1:7890 \
+  --build-arg HTTPS_PROXY=http://172.17.0.1:7890 \
+  --build-arg http_proxy=http://172.17.0.1:7890 \
+  --build-arg https_proxy=http://172.17.0.1:7890 \
+  -t howtocook-api:latest .
+```
+
+```yaml
+# 或写在你的 docker-compose.yml 的 build.args 里（模板已留注释位），随后 docker compose build
+    build:
+      args:
+        HTTP_PROXY: http://172.17.0.1:7890
+        HTTPS_PROXY: http://172.17.0.1:7890
+        http_proxy: http://172.17.0.1:7890
+        https_proxy: http://172.17.0.1:7890
+```
+
+三个要点：地址不能用 `127.0.0.1`（构建容器里指容器自己），用 Docker 网桥宿主机地址（默认 `172.17.0.1`）或宿主机局域网 IP；代理软件需开启「允许局域网连接」；大小写都传（git 认大写、curl 系认小写）。代理参数是构建期注入，不会持久化到最终镜像。
+
 > 内容获取说明：Dockerfile 在构建期 `git clone` 官方内容仓库到镜像内 `/app/content`（完整历史，非浅克隆），并通过 `CONTENT_DIR=/app/content` 告知 API。**不走浅克隆是为了保留每道菜的首位提交作者与编写时间。**
 
 ## 3. 启动
