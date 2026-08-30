@@ -281,16 +281,37 @@ export function parseTagParam(raw) {
 }
 
 /* ------------------------------------------------------------------ */
-/* 一周膳食计划（每日荤素汤，一周内不重样）                                 */
+/* 一周膳食计划（每日多槽位、周内不重样）                                   */
 /* ------------------------------------------------------------------ */
 
+/** 槽位 → 参与分类（荤池含水产；早餐/饮料/甜品为独立池）。 */
+export const SLOT_CATEGORIES = {
+  meat: ['meat_dish', 'aquatic'],
+  vegetable: ['vegetable_dish'],
+  soup: ['soup'],
+  breakfast: ['breakfast'],
+  drink: ['drink'],
+  dessert: ['dessert'],
+};
+
+/** 解析按天槽数语法：`2`（每天相同）或 `1,2,1,2`（逐天，短则循环填充、长则截断）。 */
+export function parseDailySlots(raw, defaultValue, days) {
+  const clamp = (v) => Math.min(3, Math.max(0, Number.parseInt(v, 10) || 0));
+  if (raw == null || raw === '') return Array.from({ length: days }, () => defaultValue);
+  const parts = String(raw)
+    .split(/[,，]/)
+    .map((s) => clamp(s));
+  if (parts.length === 1) return Array.from({ length: days }, () => parts[0]);
+  return Array.from({ length: days }, (_, i) => parts[i % parts.length]);
+}
+
 /**
- * 生成 days 天的膳食计划：三个池各自洗牌成牌堆依次抽取，抽过的不再出现；
- * 池子耗尽时重新洗牌（meta.repeats 标注允许重复）。
- * 返回 { days: [{ day, meat: [], vegetable: [], soup: [] }], repeats }，
- * 菜谱对象由路由层映射为 summary。
+ * 生成 days 天的膳食计划：每个槽位维护自己的牌堆，抽过的不再出现，
+ * 池耗尽时重新洗牌（repeats 标注允许重复）。
+ * slots 形如 { meat: [1,2,1,...], breakfast: [0,1,...], ... }（按天数量）。
+ * 返回 { days: [{ day, meat: [], breakfast: [], ... }], repeats, unfilled }。
  */
-export function buildWeekPlan(store, { days = 7, slots = { meat: 1, vegetable: 1, soup: 1 }, rng, maxDifficulty = null, excludeTags = [] }) {
+export function buildWeekPlan(store, { days = 7, slots = { meat: [1], vegetable: [1], soup: [1] }, rng, maxDifficulty = null, excludeTags = [] }) {
   const poolBy = (categories) =>
     filterByTags(
       store
@@ -299,29 +320,34 @@ export function buildWeekPlan(store, { days = 7, slots = { meat: 1, vegetable: 1
       null,
       excludeTags
     );
-  const pools = {
-    meat: poolBy(['meat_dish', 'aquatic']),
-    vegetable: poolBy(['vegetable_dish']),
-    soup: poolBy(['soup']),
-  };
-  const deck = { meat: [], vegetable: [], soup: [] };
+  const pools = {};
+  const decks = {};
+  for (const slot of Object.keys(slots)) {
+    pools[slot] = poolBy(SLOT_CATEGORIES[slot] || []);
+    decks[slot] = [];
+  }
   let repeats = false;
+  let unfilled = 0;
   const plan = [];
   for (let d = 1; d <= days; d++) {
-    const day = { day: d, meat: [], vegetable: [], soup: [] };
+    const day = { day: d };
     for (const slot of Object.keys(slots)) {
-      for (let k = 0; k < slots[slot]; k++) {
-        if (deck[slot].length === 0) {
-          if (pools[slot].length === 0) break;
-          deck[slot] = pickRandom(pools[slot], pools[slot].length, rng);
+      day[slot] = [];
+      for (let k = 0; k < slots[slot][d - 1]; k++) {
+        if (decks[slot].length === 0) {
+          if (pools[slot].length === 0) {
+            unfilled++;
+            break;
+          }
+          decks[slot] = pickRandom(pools[slot], pools[slot].length, rng);
           if (plan.length > 0) repeats = true;
         }
-        day[slot].push(deck[slot].pop());
+        day[slot].push(decks[slot].pop());
       }
     }
     plan.push(day);
   }
-  return { days: plan, repeats };
+  return { days: plan, repeats, unfilled };
 }
 
 /* ------------------------------------------------------------------ */

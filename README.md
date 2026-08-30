@@ -15,6 +15,7 @@ git clone https://github.com/LoCCai/HowToCook-API.git
 cd HowToCook-API
 npm install
 npm start          # 首次启动自动从官方 HowToCook 仓库下载菜谱内容到 content/
+npm run audit      # 可选：生成内容数据质量审计报告（可反馈给上游 HowToCook）
 ```
 
 已有 HowToCook 本地目录时，设置 `CONTENT_DIR` 直接复用（不触发下载）：
@@ -57,7 +58,7 @@ Docker 部署与开机自启动见 [DEPLOY.md](./DEPLOY.md)。
 
 ## 忌口 / 过敏原标签（启发式）
 
-每个菜谱带 `diet_tags` 字段（构建期从原料启发式判定，非营养数据库结论）：`vegetarian`（素）、`spicy`（含辣）、`seafood`（水产）、`peanut` / `egg` / `dairy` / `gluten`（常见过敏原）。可用于：
+每个菜谱带 `diet_tags` 字段（构建期从原料启发式判定；计划/清单类响应的 meta 会附 `diet_tags_note` 诚信说明，防止下游当作营养学结论）：`vegetarian`（素）、`spicy`（含辣）、`seafood`（水产）、`peanut` / `egg` / `dairy` / `gluten`（常见过敏原）。可用于：
 
 - 列表过滤：`GET /api/recipes?tag=vegetarian&exclude_tags=spicy,seafood`
 - 随机 / 套餐 / 周计划：`exclude_tags=seafood`（对【今天吃什么】忌口 scenario 直接生效） |
@@ -72,8 +73,8 @@ Docker 部署与开机自启动见 [DEPLOY.md](./DEPLOY.md)。
 | `GET /api/categories` | 分类列表（中文名 + 数量） |
 | `GET /api/recipes` | 菜谱列表 / 搜索 / 过滤 / 分页 |
 | `GET /api/recipes/random` | 随机推荐（今天吃什么）：`count`、`seed`（相同 seed 结果可复现）、`category`、`difficulty` |
-| `GET /api/menu` | 自动配一餐（荤+素+汤组合，HowToCook 经典场景）：`seed` 可复现整桌、`meat/vegetable/soup` 各槽数量（默认 1，上限 3）、`max_difficulty`、`exclude_tags` |
-| `GET /api/plan/week` | 一周膳食计划：每日荤素汤、**周内不重样**、seed 可复现整周；`days`（默认 7）、各槽位数、`max_difficulty`、`exclude_tags` |
+| `GET /api/menu` | 自动配一餐：六槽位自由组合（荤/素/汤默认各 1；早餐/饮料/甜品默认 0）、`seed` 可复现、`max_difficulty`、`exclude_tags` |
+| `GET /api/plan/week` | 一周膳食计划：默认每日一荤一素一汤；**六槽位**（荤/素/汤/早餐/饮料/甜品）可配、**按天槽数**（`meat=2,1,2,1,...` 某天两荤某天一荤）、周内不重样、seed 可复现；`with_shopping_list=1` 直接附整周合并购物清单（`servings=N` 缩放） |
 | `POST /api/shopping-list` | 购物清单：合并多菜谱原料（`?ids=a,b,c`），规范名归一聚合、同单位相加、适量类单列；`servings=N` 缩放 |
 | `GET /api/recipes/by-ingredients` | 按手头原料找菜：`have=鸡蛋,西红柿`（含常见别名如 番茄=西红柿），返回覆盖率与所缺原料；`mode=strict` 只返回原料齐全的 |
 | `GET /api/recipes/:id/related` | 相似菜谱推荐（原料重合度 + 同分类加权） |

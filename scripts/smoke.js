@@ -392,6 +392,36 @@ try {
     check('changelog 结构', Array.isArray(log.body.data.added) && Array.isArray(log.body.data.updated));
     check('changelog 覆盖全部菜谱（365 天窗口）', log.body.meta.added + log.body.meta.updated >= 368, `added=${log.body.meta.added} updated=${log.body.meta.updated}`);
   }
+
+  console.log('[15] 计划模型升级（六槽/按天槽数/早餐/清单联动/标签诚信）');
+  {
+    // 按天槽数：周一两荤、周二一荤（循环填充）
+    const varied = await getJson('/api/plan/week?seed=v&meat=2,1&days=7');
+    check('week 按天槽数（day1 两荤 day2 一荤）', varied.body.data.days[0].meat.length === 2 && varied.body.data.days[1].meat.length === 1);
+    check('week 按天槽数循环填充（day3 两荤）', varied.body.data.days[2].meat.length === 2);
+    const allMeat = varied.body.data.days.flatMap((d) => d.meat);
+    check('week 变槽数后仍不重样', new Set(allMeat.map((x) => x.id)).size === allMeat.length);
+
+    // 早餐槽 + 荤素汤默认
+    const full = await getJson('/api/plan/week?seed=f&breakfast=1');
+    check('week 早餐槽生效', full.body.data.days.every((d) => d.breakfast.length === 1));
+    check('week 早餐来自早餐分类', full.body.data.days.every((d) => d.breakfast[0].category.id === 'breakfast'));
+    check('week 默认荤素汤保持', full.body.data.days.every((d) => d.meat.length === 1 && d.vegetable.length === 1 && d.soup.length === 1));
+
+    // 周计划打通购物清单
+    const withSl = await getJson('/api/plan/week?seed=f&breakfast=1&with_shopping_list=1&servings=4');
+    const slItems = withSl.body.data.shopping_list.items;
+    check('week 附整周购物清单', withSl.body.meta.shopping_list?.items > 0 && slItems.length > 0);
+    check('清单 servings 缩放标注', slItems.some((i) => i.amounts.some((a) => a.scaled === true)));
+    check('meta 带标签诚信说明', typeof withSl.body.meta.diet_tags_note === 'string' && withSl.body.meta.diet_tags_note.includes('启发式'));
+
+    // menu 六槽位：早餐 + 饮料 + 甜品
+    const feast = await getJson('/api/menu?seed=feast&breakfast=1&drink=1&dessert=1&meat=0&vegetable=0&soup=0');
+    check('menu 六槽位（早/饮/甜）', feast.body.data.breakfast.length === 1 && feast.body.data.drink.length === 1 && feast.body.data.dessert.length === 1);
+    check('menu 分类池正确', feast.body.data.breakfast[0].category.id === 'breakfast' && feast.body.data.drink[0].category.id === 'drink' && feast.body.data.dessert[0].category.id === 'dessert');
+    const menuNote = await getJson('/api/menu?seed=feast');
+    check('menu meta 带标签诚信说明', typeof menuNote.body.meta.diet_tags_note === 'string');
+  }
 } catch (err) {
   failed++;
   console.error('冒烟测试异常中断:', err);

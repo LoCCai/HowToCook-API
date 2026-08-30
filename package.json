@@ -8,7 +8,8 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "node src/dev.js",
-    "smoke": "node scripts/smoke.js"
+    "smoke": "node scripts/smoke.js",
+    "audit": "node scripts/content-audit.js"
   },
   "engines": {
     "node": ">=18.17"

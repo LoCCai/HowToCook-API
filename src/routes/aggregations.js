@@ -1,45 +1,77 @@
 import { Router } from 'express';
 import { HttpError } from '../middleware/error.js';
-import { buildStats, hashSeed, mulberry32, pickRandom, buildWeekPlan, buildShoppingList, parseTagParam, filterByTags } from '../lib/discover.js';
+import { buildStats, hashSeed, mulberry32, pickRandom, buildWeekPlan, buildShoppingList, parseTagParam, filterByTags, parseDailySlots, SLOT_CATEGORIES } from '../lib/discover.js';
 import { queryRecipes, queryTips } from '../lib/search.js';
 import { getStore, resolveImageMode } from './helpers.js';
 import { summaryOf } from './recipes.js';
 
 const router = Router();
 
-// GET /api/plan/week?seed=&days=7&meat=1&vegetable=1&soup=1 —— 一周膳食计划（日内组合、周内不重样）
+// 启发式标签的诚信说明：随计划 / 清单类响应一并返回，防止下游当作营养学结论
+const DIET_TAGS_NOTE = 'diet_tags 为原料关键词启发式判定，仅供过滤参考，不构成营养学或过敏原建议';
+
+const DIET_NOTE = { diet_tags_note: DIET_TAGS_NOTE };
+
+// 解析六槽位参数：返回 { slot: number[] }（按天）与原始槽数总计
+function parsePlanSlots(query, days, { defaults = { meat: 1, vegetable: 1, soup: 1 } } = {}) {
+  const slots = {};
+  let total = 0;
+  for (const slot of Object.keys(SLOT_CATEGORIES)) {
+    const def = defaults[slot] ?? 0;
+    const perDay = query != null && query[slot] != null ? parseDailySlots(query[slot], def, days) : parseDailySlots(null, def, days);
+    slots[slot] = perDay;
+    total += perDay.reduce((a, b) => a + b, 0);
+  }
+  return { slots, total };
+}
+
+// GET /api/plan/week —— 一周膳食计划（默认每日一荤一素一汤；支持六槽位、按天槽数、早餐等）
 router.get('/plan/week', (req, res, next) => {
   try {
     const store = getStore(req);
     const imageMode = resolveImageMode(req);
     const seed = req.query.seed ? String(req.query.seed) : Date.now().toString(36);
-    const rng = mulberry32(hashSeed(`week:${seed}`));
+    const rng = mulberry32(hashSeed(`week:${seed}:${req.query.with_shopping_list === '1' ? 'sl' : ''}`));
 
     const days = Math.min(14, Math.max(1, Number.parseInt(req.query.days, 10) || 7));
-    const clampSlot = (v) => Math.min(3, Math.max(0, Number.parseInt(v, 10) || 0));
-    const slotParam = (v, defaultValue) => (v == null || v === '' ? defaultValue : clampSlot(v));
-    const slots = {
-      meat: slotParam(req.query.meat, 1),
-      vegetable: slotParam(req.query.vegetable, 1),
-      soup: slotParam(req.query.soup, 1),
-    };
-    if (slots.meat + slots.vegetable + slots.soup === 0) {
-      throw new HttpError(400, 'EMPTY_MENU', '至少需要一个槽位：meat / vegetable / soup');
+    const { slots, total } = parsePlanSlots(req.query, days);
+    if (total === 0) {
+      throw new HttpError(400, 'EMPTY_MENU', '至少需要一个槽位：meat / vegetable / soup / breakfast / drink / dessert');
     }
     const maxDiffRaw = Number.parseInt(req.query.max_difficulty, 10);
     const maxDifficulty = Number.isNaN(maxDiffRaw) ? null : Math.min(5, Math.max(1, maxDiffRaw));
     const excludeTags = parseTagParam(req.query.exclude_tags);
 
-    const { days: plan, repeats } = buildWeekPlan(store, { days, slots, rng, maxDifficulty, excludeTags });
+    const { days: plan, repeats, unfilled } = buildWeekPlan(store, { days, slots, rng, maxDifficulty, excludeTags });
+
+    const withShopping = req.query.with_shopping_list === '1';
+    let servingsFactor = 1;
+    let servings = null;
+    if (req.query.servings != null) {
+      const s = Number.parseInt(req.query.servings, 10);
+      if (Number.isNaN(s) || s < 1 || s > 100) {
+        throw new HttpError(400, 'INVALID_SERVINGS', 'servings 必须是 1-100');
+      }
+      servings = s;
+      servingsFactor = s / 2; // HowToCook 菜谱默认基准 2 人份
+    }
+
+    const data = {
+      days: plan.map((d) => {
+        const out = { day: d.day };
+        for (const slot of Object.keys(slots)) {
+          out[slot] = d[slot].map((r) => summaryOf(r, imageMode));
+        }
+        return out;
+      }),
+    };
+    if (withShopping) {
+      const allIds = plan.flatMap((d) => Object.keys(slots).flatMap((slot) => d[slot].map((r) => r.id)));
+      data.shopping_list = buildShoppingList(store, allIds, servingsFactor);
+    }
+
     res.json({
-      data: {
-        days: plan.map((d) => ({
-          day: d.day,
-          meat: d.meat.map((r) => summaryOf(r, imageMode)),
-          vegetable: d.vegetable.map((r) => summaryOf(r, imageMode)),
-          soup: d.soup.map((r) => summaryOf(r, imageMode)),
-        })),
-      },
+      data,
       meta: {
         seed,
         days,
@@ -47,6 +79,9 @@ router.get('/plan/week', (req, res, next) => {
         max_difficulty: maxDifficulty,
         exclude_tags: excludeTags,
         repeats, // 池子耗尽后重新洗牌，计划中允许出现重复菜
+        unfilled, // 池子为空而未能提供的槽位次数
+        ...(withShopping ? { shopping_list: { items: data.shopping_list.items.length, servings, scaled: servingsFactor !== 1 } } : {}),
+        ...DIET_NOTE,
         image_mode: imageMode,
       },
     });
@@ -80,14 +115,14 @@ router.post('/shopping-list', (req, res, next) => {
     const result = buildShoppingList(store, ids, factor);
     res.json({
       data: result,
-      meta: { requested: ids.length, servings: req.query.servings != null ? Number.parseInt(req.query.servings, 10) : null },
+      meta: { requested: ids.length, servings: req.query.servings != null ? Number.parseInt(req.query.servings, 10) : null, ...DIET_NOTE },
     });
   } catch (err) {
     next(err);
   }
 });
 
-// GET /api/menu?seed=&meat=1&vegetable=1&soup=1&max_difficulty= —— 自动配一餐（荤+素+汤）
+// GET /api/menu?seed=&meat=1&vegetable=1&soup=1&max_difficulty= —— 自动配一餐（六槽位自由组合）
 router.get('/menu', (req, res, next) => {
   try {
     const store = getStore(req);
@@ -95,21 +130,21 @@ router.get('/menu', (req, res, next) => {
     const seed = req.query.seed ? String(req.query.seed) : Date.now().toString(36);
     const rng = mulberry32(hashSeed(`menu:${seed}`));
 
-    const clampSlot = (v) => Math.min(3, Math.max(0, Number.parseInt(v, 10) || 0));
-    const slotParam = (v, defaultValue) => (v == null || v === '' ? defaultValue : clampSlot(v));
-    const slots = {
-      meat: slotParam(req.query.meat, 1),
-      vegetable: slotParam(req.query.vegetable, 1),
-      soup: slotParam(req.query.soup, 1),
-    };
-    if (slots.meat + slots.vegetable + slots.soup === 0) {
-      throw new HttpError(400, 'EMPTY_MENU', '至少需要一个槽位：meat / vegetable / soup');
+    const clampSlot = (v, def) => (v == null || v === '' ? def : Math.min(3, Math.max(0, Number.parseInt(v, 10) || 0)));
+    const slots = {};
+    let total = 0;
+    for (const slot of Object.keys(SLOT_CATEGORIES)) {
+      slots[slot] = clampSlot(req.query[slot], slot === 'meat' || slot === 'vegetable' || slot === 'soup' ? 1 : 0);
+      total += slots[slot];
+    }
+    if (total === 0) {
+      throw new HttpError(400, 'EMPTY_MENU', '至少需要一个槽位：meat / vegetable / soup / breakfast / drink / dessert');
     }
     const maxDiffRaw = Number.parseInt(req.query.max_difficulty, 10);
     const maxDiff = Number.isNaN(maxDiffRaw) ? null : Math.min(5, Math.max(1, maxDiffRaw));
     const excludeTags = parseTagParam(req.query.exclude_tags);
 
-    // 荤菜池包含荤菜与水产
+    // 各槽位按其分类池过滤
     const poolBy = (categories) =>
       filterByTags(
         store
@@ -119,19 +154,15 @@ router.get('/menu', (req, res, next) => {
         excludeTags
       );
 
-    const pools = {
-      meat: poolBy(['meat_dish', 'aquatic']),
-      vegetable: poolBy(['vegetable_dish']),
-      soup: poolBy(['soup']),
-    };
-
     const data = {};
-    for (const [slot, count] of Object.entries(slots)) {
+    const pool_sizes = {};
+    for (const [slot, categories] of Object.entries(SLOT_CATEGORIES)) {
+      const pool = poolBy(categories);
+      pool_sizes[slot] = pool.length;
       // 同一 rng 依次抽取，保证相同 seed 得到相同整桌
-      data[slot] = count > 0 ? pickRandom(pools[slot], count, rng).map((r) => summaryOf(r, imageMode)) : [];
+      data[slot] = slots[slot] > 0 ? pickRandom(pool, slots[slot], rng).map((r) => summaryOf(r, imageMode)) : [];
     }
-    // 池子比要求数量少时如实告知（如 max_difficulty 过滤后汤池为空）
-    const unfilled = Object.keys(slots).filter((slot) => slots[slot] > data[slot].length);
+    const unfilled = Object.keys(slots).filter((slot) => slots[slot] > 0 && data[slot].length < slots[slot]);
     res.json({
       data,
       meta: {
@@ -139,8 +170,9 @@ router.get('/menu', (req, res, next) => {
         slots,
         max_difficulty: maxDiff,
         exclude_tags: excludeTags,
-        pool_sizes: { meat: pools.meat.length, vegetable: pools.vegetable.length, soup: pools.soup.length },
+        pool_sizes,
         unfilled,
+        ...DIET_NOTE,
         image_mode: imageMode,
       },
     });
