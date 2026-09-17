@@ -167,7 +167,15 @@ try {
     const sunSteps = await getJson(`/api/recipes/${sun.body.data[0].id}/steps`);
     check('H3 分组（可控/不可控微波炉）', sunSteps.body.data.grouped.length === 2);
     const notes = await getJson(`/api/recipes/${XL_ID}/notes`);
-    check('notes 数组', Array.isArray(notes.body.data.notes));
+    check(
+      'notes 数组（text + html）',
+      Array.isArray(notes.body.data.notes) &&
+        notes.body.data.notes.every((n) => typeof n?.text === 'string' && typeof n?.html === 'string')
+    );
+    check(
+      'notes html 处理行内链接',
+      notes.body.data.notes.every((n) => !n.text.includes('](') || n.html.includes('<a href="'))
+    );
   }
 
   console.log('[6] 文档格式与图片模式');

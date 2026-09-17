@@ -85,7 +85,7 @@ Docker 部署与开机自启动见 [DEPLOY.md](./DEPLOY.md)。
 | `GET /api/recipes/:id/tools` | 工具清单 |
 | `GET /api/recipes/:id/steps` | 烹饪步骤（含 H3 分组） |
 | `GET /api/recipes/:id/sections` | 原始 H2 段落（markdown + html） |
-| `GET /api/recipes/:id/notes` | 附加内容 |
+| `GET /api/recipes/:id/notes` | 附加内容（`text`=Markdown 原文，`html`=渲染后片段，参考资料等行内链接在 `html` 中可点击） |
 | `GET /api/recipes/:id/images` | 图片资源清单 |
 | `GET /api/recipes/:id/markdown` | 完整 Markdown（图片地址按模式重写） |
 | `GET /api/recipes/:id/html` | 正文 HTML 片段（仅正文，无 html/head/body） |

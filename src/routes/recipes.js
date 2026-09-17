@@ -24,6 +24,24 @@ function coverOf(recipe, dir, imageMode) {
   };
 }
 
+/**
+ * 附加内容条目：text 为 markdown 原文，html 为按 image_mode 渲染后的片段
+ * （与 sections[].html 同一套 rewriteImageUrls + renderMarkdown，行内 [链接](url) 会被处理）。
+ */
+function noteEntries(recipe, imageMode) {
+  const dir = docDir(recipe.path);
+  return recipe.notes.map((note) => ({
+    text: note.text,
+    html: renderMarkdown(rewriteImageUrls(note.text, dir, imageMode)),
+  }));
+}
+
+function feedbackNoteHtml(recipe, imageMode) {
+  if (!recipe.feedbackNote) return null;
+  const dir = docDir(recipe.path);
+  return renderMarkdown(rewriteImageUrls(recipe.feedbackNote, dir, imageMode));
+}
+
 export function summaryOf(recipe, imageMode) {
   const dir = docDir(recipe.path);
   const item = {
@@ -70,8 +88,9 @@ function fullOf(recipe, imageMode) {
     ingredients: recipe.ingredients,
     tools: recipe.tools,
     steps: recipe.steps,
-    notes: recipe.notes,
+    notes: noteEntries(recipe, imageMode),
     feedback_note: recipe.feedbackNote,
+    feedback_note_html: feedbackNoteHtml(recipe, imageMode),
     sections: recipe.sections.map((s) => ({
       heading: s.heading,
       markdown: s.markdown,
@@ -388,12 +407,17 @@ router.get('/:id/sections', loadRecipe, (req, res) => {
   });
 });
 
-// 附加内容
+// 附加内容（text + html，参考资料等行内链接在 html 中渲染）
 router.get('/:id/notes', loadRecipe, (req, res) => {
   const r = res.locals.recipe;
+  const imageMode = resolveImageMode(req);
   res.json({
-    data: { notes: r.notes, feedback_note: r.feedbackNote },
-    meta: { id: r.id, title: r.title },
+    data: {
+      notes: noteEntries(r, imageMode),
+      feedback_note: r.feedbackNote,
+      feedback_note_html: feedbackNoteHtml(r, imageMode),
+    },
+    meta: { id: r.id, title: r.title, image_mode: imageMode },
   });
 });
 

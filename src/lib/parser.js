@@ -376,12 +376,14 @@ export function parseRecipe(rawText, relPosixPath) {
   }
 
   // ---- 附加内容 ----
+  // note.text 保留 markdown 原文（含 [链接](url) 等行内语法）；
+  // 渲染后的 html 由路由层按 image_mode 生成，与 sections[].html 一致。
   const notes = [];
   let feedbackNote = null;
   let noteBuf = [];
   const flushNote = () => {
     if (noteBuf.length) {
-      notes.push(noteBuf.join('\n').trim());
+      notes.push({ text: noteBuf.join('\n').trim() });
       noteBuf = [];
     }
   };
