@@ -13,6 +13,9 @@ const XL_ID = 'e2a148eb6c'; // dishes/aquatic/小龙虾/小龙虾.md 的稳定 I
 
 let passed = 0;
 let failed = 0;
+// 上游内容为构建期克隆的 master，菜谱总数是移动目标；
+// 冒烟断言只用「合理规模 + 各端点间一致性」，不硬编码具体数目。
+let totalRecipes = 0;
 function check(name, cond, detail = '') {
   if (cond) {
     passed++;
@@ -106,7 +109,10 @@ try {
   console.log('[1] 基础端点');
   {
     const { body } = await getJson('/api/health');
-    check('health: 368 菜谱', body.data.recipes === 368, `got ${body.data.recipes}`);
+    totalRecipes = body.data.recipes;
+    check('health: 菜谱数量为合理规模（≥300）', Number.isInteger(totalRecipes) && totalRecipes >= 300, `got ${totalRecipes}`);
+    const list1 = await getJson('/api/recipes?page_size=1');
+    check('health 计数与列表 total 一致', list1.body.meta.total === totalRecipes, `health=${totalRecipes} list=${list1.body.meta.total}`);
     check('health: git 元数据可用', body.data.git_metadata === true);
     const docs = await textOf(await fetch(assertLocalUrl(BASE + '/api')));
     check('/api 索引页 200 HTML', docs.status === 200 && docs.text.includes('<table>'));
@@ -197,7 +203,7 @@ try {
   console.log('[7] tips');
   {
     const list = await getJson('/api/tips');
-    check('18 篇技巧', list.body.meta.total === 18);
+    check('技巧篇数合理（≥10）', list.body.meta.total >= 10, `got ${list.body.meta.total}`);
     const q = await getJson(`/api/tips?q=${encodeURIComponent('去腥')}`);
     check('搜索命中去腥', q.body.data.some((t) => t.title === '去腥'));
     const one = await getJson(`/api/tips/${q.body.data[0].id}`);
@@ -255,7 +261,7 @@ try {
     check('related 返回相似菜谱', rel.body.data.length === 3 && rel.body.data[0].score > 0);
 
     const stats = await getJson('/api/stats');
-    check('stats 全库统计', stats.body.data.recipes === 368 && stats.body.data.top_ingredients.length > 0 && stats.body.data.difficulty['4'] > 0);
+    check('stats 全库统计（计数与 health 一致）', stats.body.data.recipes === totalRecipes && stats.body.data.top_ingredients.length > 0 && stats.body.data.difficulty['4'] > 0, `stats=${stats.body.data.recipes} health=${totalRecipes}`);
 
     const agg = await getJson(`/api/search?q=${encodeURIComponent('蛋炒饭')}`);
     check('聚合搜索菜谱+技巧', agg.body.data.recipes.items.length > 0 && Array.isArray(agg.body.data.tips.items));
@@ -398,7 +404,7 @@ try {
     // changelog
     const log = await getJson('/api/content/changelog?days=365');
     check('changelog 结构', Array.isArray(log.body.data.added) && Array.isArray(log.body.data.updated));
-    check('changelog 覆盖全部菜谱（365 天窗口）', log.body.meta.added + log.body.meta.updated >= 368, `added=${log.body.meta.added} updated=${log.body.meta.updated}`);
+    check('changelog 覆盖全部菜谱（365 天窗口）', log.body.meta.added + log.body.meta.updated >= totalRecipes, `added=${log.body.meta.added} updated=${log.body.meta.updated} total=${totalRecipes}`);
   }
 
   console.log('[15] 计划模型升级（六槽/按天槽数/早餐/清单联动/标签诚信）');
